@@ -4,6 +4,7 @@ import {
   UserPlus,
   FileSearch,
   Upload,
+  Send,
   ClipboardCheck,
   Award,
   ArrowRight,
@@ -14,37 +15,45 @@ const steps = [
     step: "01",
     title: "Бүртгүүлэх",
     description:
-      "Компанийн мэдээлэл болон шаардлагатай бичиг баримтуудыг бүртгүүлнэ",
+      "Компанийн болон холбоо барих мэдээллээ оруулж нийлүүлэгчийн эрх үүсгэнэ",
     icon: UserPlus,
     color: "bg-blue-500/10 text-blue-600",
   },
   {
     step: "02",
-    title: "Тендер хайх",
-    description: "Боломжит тендерүүдээс өөрийн чадавхид тохирохыг олно",
+    title: "Тендер судлах",
+    description: "Нээлттэй тендерийн дэлгэрэнгүй, багц, хугацаа болон шаардлагыг шалгана",
     icon: FileSearch,
     color: "bg-orange-500/10 text-orange-600",
   },
   {
     step: "03",
-    title: "Санал ирүүлэх",
+    title: "Санал бэлтгэх",
     description:
-      "Шаардлагатай бичиг баримтуудын хамт саналаа хугацаандаа ирүүлнэ",
+      "Оролцох багцаа сонгож, шаардлагатай материал болон үнийн саналаа оруулна",
     icon: Upload,
     color: "bg-purple-500/10 text-purple-600",
   },
   {
     step: "04",
-    title: "Үнэлгээ",
-    description: "Таны саналыг техникийн болон санхүүгийн шалгууруудаар үнэлнэ",
+    title: "Оролцоогоо баталгаажуулах",
+    description: "Материал, үнийн саналаа хянаад тендерт оролцох хүсэлтээ хугацаанд нь илгээнэ",
+    icon: Send,
+    color: "bg-rose-500/10 text-rose-600",
+  },
+  {
+    step: "05",
+    title: "Нээлт ба үнэлгээ",
+    description:
+      "Тендер нээгдэж, санал техникийн болон санхүүгийн шалгуураар шатлан үнэлэгдэнэ",
     icon: ClipboardCheck,
     color: "bg-indigo-500/10 text-indigo-600",
   },
   {
-    step: "05",
+    step: "06",
     title: "Үр дүн",
     description:
-      "Үнэлгээний үр дүн болон дараагийн алхмуудын мэдэгдэл хүлээн авна",
+      "Шалгарсан эсвэл шалгараагүй эцсийн төлөвөө оролцсон тендерийн хэсгээс харна",
     icon: Award,
     color: "bg-emerald-500/10 text-emerald-600",
   },
@@ -52,7 +61,7 @@ const steps = [
 
 export function ProcessSection() {
   return (
-    <section className="relative overflow-hidden bg-background py-20 lg:py-32">
+    <section id="how-it-works" className="relative scroll-mt-16 overflow-hidden bg-background py-20 lg:py-32">
       {/* Чимэглэлийн дэвсгэр эффект */}
       <div className="absolute left-1/2 top-0 -translate-x-1/2 blur-3xl opacity-10 pointer-events-none">
         <div className="aspect-1100/500 w-280 bg-linear-to-tr from-primary to-blue-400"></div>
@@ -65,7 +74,7 @@ export function ProcessSection() {
           </h2>
           <p className="mt-4 text-lg text-muted-foreground leading-relaxed">
             Худалдан авалтын үйл явцад оролцохын тулд дараах{" "}
-            <span className="text-primary font-medium">5 энгийн алхмыг</span>{" "}
+            <span className="text-primary font-medium">6 үндсэн алхмыг</span>{" "}
             дагана уу.
           </p>
         </div>

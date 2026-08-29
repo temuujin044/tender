@@ -12,9 +12,9 @@ export default async function DashboardLayout({
   if (cookieStore.get(AUTH_COOKIE_KEY)?.value !== "true") redirect("/login?redirect=/dashboard")
   if (cookieStore.get(AUTH_ROLE_COOKIE_KEY)?.value === "employee") redirect("/employee")
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden">
       <DashboardSidebar />
-      <main className="flex-1 overflow-auto">
+      <main className="h-screen min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
         {children}
       </main>
     </div>

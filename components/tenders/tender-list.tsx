@@ -24,18 +24,16 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react"
-import { type Tender, categories, statusConfig } from "@/lib/tender-data"
-import { EMPLOYEE_STORE_EVENT, getPublishedEmployeeTendersForVendor } from "@/lib/dummy-employee-store"
+import { type Tender, statusConfig } from "@/lib/tender-data"
 
 interface TenderListProps {
   tenders: Tender[]
   title: string
   description: string
   defaultStatus?: string
-  includeEmployeePublished?: boolean
 }
 
-export function TenderList({ tenders, title, description, defaultStatus = "all", includeEmployeePublished = false }: TenderListProps) {
+export function TenderList({ tenders, title, description, defaultStatus = "all" }: TenderListProps) {
   const [visibleTenders, setVisibleTenders] = useState(tenders)
   const [searchQuery, setSearchQuery] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("Бүх ангилал")
@@ -45,25 +43,14 @@ export function TenderList({ tenders, title, description, defaultStatus = "all",
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 6
 
-  useEffect(() => {
-    if (!includeEmployeePublished) {
-      setVisibleTenders(tenders)
-      return
-    }
-    const sync = () => {
-      const published = getPublishedEmployeeTendersForVendor()
-      setVisibleTenders([...tenders, ...published.filter((item) => !tenders.some((tender) => tender.id === item.id))])
-    }
-    sync()
-    window.addEventListener(EMPLOYEE_STORE_EVENT, sync)
-    return () => window.removeEventListener(EMPLOYEE_STORE_EVENT, sync)
-  }, [includeEmployeePublished, tenders])
+  useEffect(() => { setVisibleTenders(tenders) }, [tenders])
+  const categoryOptions = ["Бүх ангилал", ...Array.from(new Set(visibleTenders.map((tender) => tender.category)))]
 
   const filteredTenders = visibleTenders
     .filter((tender) => {
       const matchesSearch =
         tender.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        tender.id.toLowerCase().includes(searchQuery.toLowerCase())
+        `${tender.tenderCode ?? tender.id} ${tender.invitationCode}`.toLowerCase().includes(searchQuery.toLowerCase())
       const matchesCategory =
         categoryFilter === "Бүх ангилал" || tender.category === categoryFilter
       const matchesStatus = statusFilter === "all" || tender.status === statusFilter
@@ -71,11 +58,11 @@ export function TenderList({ tenders, title, description, defaultStatus = "all",
     })
     .sort((a, b) => {
       if (sortBy === "deadline") {
-        return new Date(a.deadline).getTime() - new Date(b.deadline).getTime()
+        return Date.parse(a.deadline.replaceAll(".", "-").replace(" ", "T")) - Date.parse(b.deadline.replaceAll(".", "-").replace(" ", "T"))
       } else if (sortBy === "value") {
         return parseInt(b.value.replace(/[^\d]/g, "")) - parseInt(a.value.replace(/[^\d]/g, ""))
       } else if (sortBy === "published") {
-        return new Date(b.publishDate).getTime() - new Date(a.publishDate).getTime()
+        return Date.parse(b.publishDate.replaceAll(".", "-")) - Date.parse(a.publishDate.replaceAll(".", "-"))
       }
       return 0
     })
@@ -123,7 +110,7 @@ export function TenderList({ tenders, title, description, defaultStatus = "all",
                   <SelectValue placeholder="Ангилал" />
                 </SelectTrigger>
                 <SelectContent>
-                  {categories.map((category) => (
+                  {categoryOptions.map((category) => (
                     <SelectItem key={category} value={category}>
                       {category}
                     </SelectItem>
@@ -226,7 +213,7 @@ export function TenderList({ tenders, title, description, defaultStatus = "all",
                       >
                         {statusConfig[tender.status].label}
                       </Badge>
-                      <span className="text-sm text-muted-foreground">{tender.id}</span>
+                      <span className="text-sm text-muted-foreground">{tender.tenderCode ?? tender.id}</span>
                     </div>
                     <h3 className="mt-2 text-lg font-semibold text-foreground">
                       {tender.title}
@@ -273,7 +260,7 @@ export function TenderList({ tenders, title, description, defaultStatus = "all",
                   >
                     {statusConfig[tender.status].label}
                   </Badge>
-                  <span className="text-xs text-muted-foreground">{tender.id}</span>
+                  <span className="text-xs text-muted-foreground">{tender.tenderCode ?? tender.id}</span>
                 </div>
                 <h3 className="mt-3 line-clamp-2 text-base font-semibold text-foreground">
                   {tender.title}

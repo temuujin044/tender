@@ -1,222 +1,100 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
+import { AlertCircle, Bell, CheckCircle, Clock, FileText, Loader2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import {
-  Bell,
-  FileText,
-  CheckCircle,
-  AlertCircle,
-  Clock,
-  Check,
-  Trash2,
-} from "lucide-react"
-
-const initialNotifications = [
-  {
-    id: 1,
-    type: "deadline",
-    title: "Хугацаа ойртож байна",
-    message: "'Байгууллагын арга хэмжээний хоол үйлчилгээ' тендерийн хугацаа 2 хоногийн дараа дуусна.",
-    tender: "TND-2024-005",
-    time: "2 цагийн өмнө",
-    read: false,
-  },
-  {
-    id: 2,
-    type: "status",
-    title: "Саналын төлөв шинэчлэгдлээ",
-    message: "'Оффисын барилгын их засварын төсөл' тендерт илгээсэн таны санал хянагдаж байна.",
-    tender: "TND-2024-002",
-    time: "1 өдрийн өмнө",
-    read: false,
-  },
-  {
-    id: 3,
-    type: "new",
-    title: "Шинэ тендер нийтлэгдлээ",
-    message: "Таны сонирхолд нийцэх шинэ тендер нийтлэгдлээ: 'Аж ахуйн программ хангамжийн лиценз шинэчлэл'",
-    tender: "TND-2024-006",
-    time: "2 өдрийн өмнө",
-    read: false,
-  },
-  {
-    id: 4,
-    type: "result",
-    title: "Тендерийн үр дүн",
-    message: "Баяр хүргэе. Та 'Жилийн аудитын үйлчилгээ' тендерт шалгарлаа.",
-    tender: "TND-2024-008",
-    time: "5 өдрийн өмнө",
-    read: true,
-  },
-  {
-    id: 5,
-    type: "info",
-    title: "Баримт шинэчлэгдлээ",
-    message: "'Төв оффисын МТ тоног төхөөрөмж нийлүүлэх' тендерийн техникийн тодорхойлолт шинэчлэгдсэн байна. Өөрчлөлтийг шалгана уу.",
-    tender: "TND-2024-001",
-    time: "1 долоо хоногийн өмнө",
-    read: true,
-  },
-]
+import { Card, CardContent } from "@/components/ui/card"
+import { fetchVendorNotifications, type VendorNotification } from "@/lib/api"
+import { getStoredUser } from "@/lib/auth"
 
 const typeConfig = {
-  deadline: {
-    icon: AlertCircle,
-    iconColor: "text-amber-600",
-    bgColor: "bg-amber-100",
-  },
-  status: {
-    icon: Clock,
-    iconColor: "text-blue-600",
-    bgColor: "bg-blue-100",
-  },
-  new: {
-    icon: FileText,
-    iconColor: "text-primary",
-    bgColor: "bg-primary/10",
-  },
-  result: {
-    icon: CheckCircle,
-    iconColor: "text-emerald-600",
-    bgColor: "bg-emerald-100",
-  },
-  info: {
-    icon: Bell,
-    iconColor: "text-gray-600",
-    bgColor: "bg-gray-100",
-  },
-}
+  deadline: { label: "Хугацаа ойртсон", icon: AlertCircle, iconColor: "text-amber-600", bgColor: "bg-amber-100" },
+  status: { label: "Оролцсон тендер", icon: Clock, iconColor: "text-blue-600", bgColor: "bg-blue-100" },
+  new: { label: "Тендерийн мэдээлэл", icon: FileText, iconColor: "text-orange-600", bgColor: "bg-orange-50" },
+  result: { label: "Тендерийн үр дүн", icon: CheckCircle, iconColor: "text-emerald-600", bgColor: "bg-emerald-100" },
+} satisfies Record<VendorNotification["type"], { label: string; icon: typeof Bell; iconColor: string; bgColor: string }>
 
 export default function NotificationsPage() {
-  const [notifications, setNotifications] = useState(initialNotifications)
+  const [notifications, setNotifications] = useState<VendorNotification[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
 
-  const unreadCount = notifications.filter((n) => !n.read).length
-
-  const markAsRead = (id: number) => {
-    setNotifications(
-      notifications.map((n) => (n.id === id ? { ...n, read: true } : n))
-    )
-  }
-
-  const markAllAsRead = () => {
-    setNotifications(notifications.map((n) => ({ ...n, read: true })))
-  }
-
-  const deleteNotification = (id: number) => {
-    setNotifications(notifications.filter((n) => n.id !== id))
-  }
+  useEffect(() => {
+    const user = getStoredUser()
+    if (!user?.vendorId) {
+      setError("Нэвтэрсэн нийлүүлэгчийн бодит ID олдсонгүй. Дахин нэвтэрнэ үү.")
+      setLoading(false)
+      return
+    }
+    void fetchVendorNotifications(user.vendorId)
+      .then(setNotifications)
+      .catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Мэдэгдлийн мэдээлэл ачаалж чадсангүй."))
+      .finally(() => setLoading(false))
+  }, [])
 
   return (
     <div className="p-6 lg:p-8">
-      {/* Header */}
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+      <div className="mx-auto max-w-7xl">
+        <header className="mb-8">
           <h1 className="text-2xl font-semibold text-foreground">Мэдэгдэл</h1>
-          <p className="mt-1 text-muted-foreground">
-            Тендерийн үйл ажиллагааны шинэчлэлээ эндээс хянаарай
-          </p>
+          <p className="mt-1 text-muted-foreground">Backend мэдээллийн сан дахь тендерийн төлөв, хугацаа болон оролцооны мэдээлэл.</p>
+        </header>
+
+        <div className="mb-6">
+          <Badge variant="secondary" className="bg-secondary text-secondary-foreground">{notifications.length} нийт</Badge>
         </div>
-        {unreadCount > 0 && (
-          <Button variant="outline" onClick={markAllAsRead}>
-            <Check className="mr-2 h-4 w-4" />
-            Бүгдийг уншсанд тэмдэглэх
-          </Button>
-        )}
-      </div>
 
-      {/* Notification Stats */}
-      <div className="mb-6 flex items-center gap-4">
-        <Badge variant="secondary" className="bg-primary/10 text-primary">
-          {unreadCount} уншаагүй
-        </Badge>
-        <Badge variant="secondary" className="bg-secondary text-secondary-foreground">
-          {notifications.length} нийт
-        </Badge>
-      </div>
-
-      {/* Notifications List */}
-      <Card className="border-border/60">
-        <CardContent className="p-0">
-          {notifications.length === 0 ? (
-            <div className="py-16 text-center">
-              <Bell className="mx-auto h-12 w-12 text-muted-foreground/50" />
-              <p className="mt-4 text-muted-foreground">Мэдэгдэл алга</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-border/60">
-              {notifications.map((notification) => {
-                const config = typeConfig[notification.type as keyof typeof typeConfig]
-                const Icon = config.icon
-                return (
-                  <div
-                    key={notification.id}
-                    className={`flex gap-4 p-6 transition-colors ${
-                      !notification.read ? "bg-primary/[0.02]" : ""
-                    }`}
-                  >
-                    <div
-                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${config.bgColor}`}
+        <Card className="border-border/60">
+          <CardContent className="p-0">
+            {loading ? (
+              <div className="flex min-h-64 items-center justify-center gap-3 text-sm text-muted-foreground">
+                <Loader2 className="size-5 animate-spin text-orange-500" />Мэдээллийг backend-ээс ачаалж байна...
+              </div>
+            ) : error ? (
+              <div className="py-16 text-center">
+                <AlertCircle className="mx-auto size-10 text-red-500" />
+                <p className="mt-4 text-sm font-medium text-red-700">{error}</p>
+              </div>
+            ) : notifications.length === 0 ? (
+              <div className="py-16 text-center">
+                <Bell className="mx-auto h-12 w-12 text-muted-foreground/50" />
+                <p className="mt-4 text-muted-foreground">Мэдэгдэл үүсгэх тендерийн үйл явдал алга.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border/60">
+                {notifications.map((notification) => {
+                  const config = typeConfig[notification.type]
+                  const Icon = config.icon
+                  return (
+                    <Link
+                      key={notification.id}
+                      href={`/tenders/${notification.invitationId}`}
+                      className="flex gap-4 p-6 transition-colors hover:bg-slate-50"
                     >
-                      <Icon className={`h-5 w-5 ${config.iconColor}`} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium text-foreground">
-                              {notification.title}
-                            </p>
-                            {!notification.read && (
-                              <span className="h-2 w-2 rounded-full bg-primary" />
-                            )}
-                          </div>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            {notification.message}
-                          </p>
-                          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                            <Link
-                              href={`/tenders/${notification.tender}`}
-                              className="text-primary hover:underline"
-                            >
-                              {notification.tender}
-                            </Link>
-                            <span>•</span>
-                            <span>{notification.time}</span>
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 gap-1">
-                          {!notification.read && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={() => markAsRead(notification.id)}
-                            >
-                              <Check className="h-4 w-4" />
-                            </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                            onClick={() => deleteNotification(notification.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${config.bgColor}`}>
+                        <Icon className={`h-5 w-5 ${config.iconColor}`} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-foreground">{config.label}</span>
+                          <Badge variant="outline" className="font-normal">{notification.statusName}</Badge>
+                        </span>
+                        <span className="mt-1 block truncate text-sm text-muted-foreground">{notification.title}</span>
+                        <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          <span className="font-medium text-orange-600">{notification.tenderCode}</span>
+                          <span>{notification.invitationCode}</span>
+                          <span>{notification.time}</span>
+                        </span>
+                      </span>
+                    </Link>
+                  )
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

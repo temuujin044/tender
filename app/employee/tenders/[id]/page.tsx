@@ -2,7 +2,7 @@
 
 import { use, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { notFound, useRouter } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { AlertCircle, ArrowLeft, ArrowRight, CalendarClock, Check, CheckCircle2, ClipboardCheck, FileCheck2, FileText, Layers3, Loader2, Plus, Save, Send, Settings2, Trash2, Upload, UsersRound } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -14,7 +14,9 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
-import { formatEmployeeMoney, getEmployeeTender, getTenderCompletion, publishEmployeeTender, saveEmployeeTender, type EmployeeCriterion, type EmployeeMember, type EmployeeRequirement, type EmployeeTender } from "@/lib/dummy-employee-store"
+import { formatEmployeeMoney, getTenderCompletion, type EmployeeCriterion, type EmployeeMember, type EmployeeRequirement, type EmployeeTender } from "@/lib/employee-tender"
+import { deleteEmployeeTenderDocument, ensureEmployeeInvitation, fetchEmployeeDirectory, fetchEmployeeTender, fetchEmployeeTenderOptions, publishEmployeeTenderToBackend, saveEmployeeTenderDraftDetails, saveEmployeeTenderToBackend, uploadEmployeeTenderDocument, type EmployeeDirectoryItem, type EmployeeTenderOptions } from "@/lib/api"
+import { getStoredUser } from "@/lib/auth"
 
 const steps = [
   { id: 1, label: "Үндсэн мэдээлэл", icon: Settings2 },
@@ -30,14 +32,6 @@ const roleNames: Record<EmployeeMember["role"], string> = { secretary: "Нари
 const requirementNames: Record<EmployeeRequirement["type"], string> = { general: "Ерөнхий", technical: "Техникийн", financial: "Санхүүгийн" }
 const criterionNames: Record<EmployeeCriterion["type"], string> = { technical: "Техникийн", financial: "Санхүүгийн", experience: "Туршлага" }
 
-const employees = [
-  { name: "Б. Номин", position: "Худалдан авалтын мэргэжилтэн", email: "nomin@mak.mn" },
-  { name: "Д. Энхболд", position: "Хангамжийн газрын захирал", email: "enkhbold@mak.mn" },
-  { name: "С. Тэмүүлэн", position: "Дотоод хяналтын мэргэжилтэн", email: "temuulen@mak.mn" },
-  { name: "О. Мөнхзул", position: "Санхүүгийн шинжээч", email: "munkhzul@mak.mn" },
-  { name: "Г. Батзориг", position: "Техникийн ахлах инженер", email: "batzorig@mak.mn" },
-]
-
 export default function EmployeeTenderEditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
@@ -46,18 +40,52 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [publishOpen, setPublishOpen] = useState(false)
+  const [loadError, setLoadError] = useState("")
+  const [options, setOptions] = useState<EmployeeTenderOptions>({ tenderTypes: [], purchaseTypes: [], departments: [] })
+  const [employees, setEmployees] = useState<EmployeeDirectoryItem[]>([])
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [batchDraft, setBatchDraft] = useState({ code: "", name: "" })
   const [requirementDraft, setRequirementDraft] = useState<{ name: string; type: EmployeeRequirement["type"]; documentRequired: boolean }>({ name: "", type: "general", documentRequired: true })
   const [criterionDraft, setCriterionDraft] = useState<{ name: string; type: EmployeeCriterion["type"]; weight: string }>({ name: "", type: "technical", weight: "" })
-  const [memberDraft, setMemberDraft] = useState({ employeeEmail: "", role: "member" as EmployeeMember["role"] })
+  const [employeeQuery, setEmployeeQuery] = useState("")
+  const [memberDraft, setMemberDraft] = useState({ employeeId: "", role: "member" as EmployeeMember["role"] })
 
-  useEffect(() => { setTender(getEmployeeTender(id) ?? null) }, [id])
+  useEffect(() => {
+    const invitationId = Number(id)
+    void Promise.all([fetchEmployeeTenderOptions(), fetchEmployeeDirectory()])
+      .then(([tenderOptions, employeeRows]) => {
+        setOptions(tenderOptions)
+        setEmployees(employeeRows)
+      })
+      .catch((requestError) => setLoadError(requestError instanceof Error ? requestError.message : "Лавлах мэдээлэл ачаалж чадсангүй."))
+    if (invitationId === 0) {
+      const user = getStoredUser()
+      const now = new Date()
+      setTender({
+        id: "0", tenderId: 0, invitationId: 0, tenderCode: "Backend үүсгэнэ", invitationCode: "Backend үүсгэнэ",
+        name: "", tenderType: "", purchaseType: "", department: "", budget: 0,
+        publishDate: now.toISOString().slice(0, 10), startDate: "", endDate: "", acceptDate: "", openDate: "", evaluationDate: "",
+        description: "", note: "", status: "draft", batches: [], requirements: [], criteria: [], documents: [], members: [],
+        createdBy: user?.username ?? "", updatedAt: now.toISOString(),
+      })
+      return
+    }
+    void fetchEmployeeTender(invitationId).then(setTender).catch((requestError) => setLoadError(requestError instanceof Error ? requestError.message : "Тендер ачаалж чадсангүй."))
+  }, [id])
   const completion = useMemo(() => tender ? getTenderCompletion(tender) : null, [tender])
   const criteriaWeight = tender?.criteria.reduce((sum, item) => sum + item.weight, 0) ?? 0
+  const committeeEmployees = useMemo(() => {
+    const normalized = employeeQuery.trim().toLowerCase()
+    if (!normalized) return employees.slice(0, 50)
+    return employees.filter((employee) => (
+      `${employee.empname ?? ""} ${employee.positionname ?? ""} ${employee.email ?? ""} ${employee.empid}`
+        .toLowerCase()
+        .includes(normalized)
+    )).slice(0, 100)
+  }, [employeeQuery, employees])
 
   if (tender === null) {
-    if (typeof window !== "undefined" && !getEmployeeTender(id)) notFound()
+    if (loadError) return <div className="flex min-h-[70vh] items-center justify-center px-6 text-center text-sm font-medium text-red-700">{loadError}</div>
     return <div className="flex min-h-[70vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-orange-500" /></div>
   }
 
@@ -96,19 +124,39 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
 
   const saveDraft = async (quiet = false) => {
     setSaving(true)
-    await new Promise((resolve) => setTimeout(resolve, 350))
-    const currentCompletion = getTenderCompletion(tender)
-    const nextStatus = tender.status === "published" || tender.status === "closed" ? tender.status : currentCompletion.percent === 100 ? "ready" : "draft"
-    const result = saveEmployeeTender({ ...tender, status: nextStatus })
-    setTender(result); setSaving(false); setSaved(true)
-    if (!quiet) window.setTimeout(() => setSaved(false), 2200)
-    return result
+    setLoadError("")
+    try {
+      const currentCompletion = getTenderCompletion(tender)
+      const nextStatus: EmployeeTender["status"] = tender.status === "published" || tender.status === "closed" ? tender.status : currentCompletion.percent === 100 ? "ready" : "draft"
+      const tenderId = await saveEmployeeTenderToBackend({ ...tender, status: nextStatus })
+      const invitation = await ensureEmployeeInvitation(tenderId, tender.createdBy, tender.invitationId)
+      const draftTender = { ...tender, tenderId, invitationId: invitation.invitationid, status: nextStatus }
+      await saveEmployeeTenderDraftDetails(draftTender)
+      let documents = tender.documents
+      for (const document of tender.documents.filter((item) => item.file)) {
+        const uploaded = await uploadEmployeeTenderDocument({ file: document.file!, tenderId, invitationId: invitation.invitationid, createdBy: tender.createdBy })
+        documents = documents.map((item) => item.id === document.id ? { ...item, id: String(uploaded.data.documentid), file: undefined } : item)
+      }
+      const result = { ...draftTender, id: String(invitation.invitationid), invitationCode: invitation.invitationcode || tender.invitationCode, documents, updatedAt: new Date().toISOString() }
+      setTender(result); setSaving(false); setSaved(true)
+      if (id === "0") router.replace(`/employee/tenders/${invitation.invitationid}`)
+      if (!quiet) window.setTimeout(() => setSaved(false), 2200)
+      return result
+    } catch (requestError) {
+      setSaving(false)
+      setLoadError(requestError instanceof Error ? requestError.message : "Тендер хадгалагдсангүй.")
+      throw requestError
+    }
   }
 
   const goNext = async () => {
     if (!validateCurrentStep()) return
-    await saveDraft(true)
-    setStep((current) => Math.min(current + 1, 7)); window.scrollTo({ top: 0, behavior: "smooth" })
+    try {
+      await saveDraft(true)
+      setStep((current) => Math.min(current + 1, 7)); window.scrollTo({ top: 0, behavior: "smooth" })
+    } catch {
+      return
+    }
   }
 
   const addBatch = () => {
@@ -126,26 +174,49 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
   }
   const uploadDocuments = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? [])
-    update("documents", [...tender.documents, ...files.map((file) => ({ id: `D-${Date.now()}-${file.name}`, name: file.name, type: "tender" as const, size: `${(file.size / 1024 / 1024).toFixed(2)} MB` }))])
+    update("documents", [...tender.documents, ...files.map((file) => ({ id: `D-${Date.now()}-${file.name}`, name: file.name, type: "tender" as const, size: `${(file.size / 1024 / 1024).toFixed(2)} MB`, file }))])
+  }
+  const removeDocument = async (document: EmployeeTender["documents"][number]) => {
+    const documentId = Number(document.id)
+    try {
+      if (!document.file && Number.isInteger(documentId) && documentId > 0) {
+        await deleteEmployeeTenderDocument(documentId)
+      }
+      update("documents", tender.documents.filter((item) => item.id !== document.id))
+    } catch (requestError) {
+      setLoadError(requestError instanceof Error ? requestError.message : "Баримт устгаж чадсангүй.")
+    }
   }
   const addMember = () => {
-    const employee = employees.find((item) => item.email === memberDraft.employeeEmail)
-    if (!employee || tender.members.some((item) => item.email === employee.email && item.role === memberDraft.role)) return
-    update("members", [...tender.members, { id: `M-${Date.now()}`, ...employee, role: memberDraft.role }]); setMemberDraft({ employeeEmail: "", role: "member" })
+    const employee = employees.find((item) => String(item.empid) === memberDraft.employeeId)
+    if (!employee || tender.members.some((item) => item.employeeId === employee.empid && item.role === memberDraft.role)) return
+    update("members", [...tender.members, {
+      id: `M-${Date.now()}`,
+      employeeId: employee.empid,
+      name: employee.empname?.trim() || `Ажилтан #${employee.empid}`,
+      position: employee.positionname?.trim() || "Албан тушаал бүртгэгдээгүй",
+      email: employee.email?.trim() || "",
+      role: memberDraft.role,
+    }]); setMemberDraft({ employeeId: "", role: "member" }); setEmployeeQuery("")
   }
   const publish = async () => {
-    await saveDraft(true)
-    const result = publishEmployeeTender(id)
-    if (result) setTender(result)
-    setPublishOpen(false)
+    try {
+      const savedTender = await saveDraft(true)
+      await publishEmployeeTenderToBackend(savedTender)
+      setTender({ ...savedTender, status: "published", publishDate: savedTender.publishDate || new Date().toISOString().slice(0, 10) })
+      setPublishOpen(false)
+    } catch {
+      setPublishOpen(false)
+    }
   }
 
   return <div className="p-6 lg:p-8"><div className="mx-auto max-w-7xl">
     <div className="mb-6 flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
       <div><Link href="/employee/tenders" className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900"><ArrowLeft className="h-4 w-4" />Тендерийн жагсаалт</Link><div className="mt-4 flex flex-wrap items-center gap-2"><Badge variant="secondary">{tender.status === "draft" ? "Ноорог" : tender.status === "ready" ? "Нийтлэхэд бэлэн" : tender.status === "published" ? "Нийтэлсэн" : "Хаагдсан"}</Badge><span className="text-sm font-medium text-slate-500">{tender.tenderCode}</span><span className="text-xs text-slate-400">{tender.invitationCode}</span></div><h1 className="mt-2 text-2xl font-bold text-slate-900">{tender.name || "Шинэ тендер"}</h1><p className="mt-1 text-sm text-slate-500">Сүүлд хадгалсан: {new Date(tender.updatedAt).toLocaleString("mn-MN")}</p></div>
-      <div className="flex items-center gap-3"><span className={cn("text-sm font-medium transition-opacity", saved ? "text-emerald-600" : "opacity-0")}><CheckCircle2 className="mr-1 inline h-4 w-4" />Хадгаллаа</span><Button variant="outline" onClick={() => saveDraft()} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Ноорог хадгалах</Button></div>
+      <div className="flex items-center gap-3"><span className={cn("text-sm font-medium transition-opacity", saved ? "text-emerald-600" : "opacity-0")}><CheckCircle2 className="mr-1 inline h-4 w-4" />Backend-д хадгаллаа</span><Button variant="outline" onClick={() => void saveDraft()} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Ноорог хадгалах</Button></div>
     </div>
 
+    {loadError && <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{loadError}</div>}
     <div className="grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
       <aside className="h-fit rounded-2xl border border-slate-200 bg-white p-3 shadow-sm xl:sticky xl:top-6">
         <div className="mb-3 rounded-xl bg-slate-50 p-3"><div className="flex items-center justify-between text-xs"><span className="text-slate-500">Нийт бүрдүүлэлт</span><span className="font-bold text-slate-700">{completion?.percent}%</span></div><div className="mt-2 h-2 rounded-full bg-slate-200"><div className="h-full rounded-full bg-orange-500 transition-all" style={{ width: `${completion?.percent}%` }} /></div></div>
@@ -156,9 +227,9 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
         {step === 1 && <Section title="Үндсэн мэдээлэл" description="TBLTENDER хүснэгтийн үндсэн талбаруудыг бөглөнө."><div className="grid gap-5 sm:grid-cols-2">
           <Field label="Тендерийн нэр" error={errors.name} wide><Input value={tender.name} onChange={(event) => update("name", event.target.value)} placeholder="Тендерийн нэр" /></Field>
           <Field label="Тендерийн код"><Input value={tender.tenderCode} readOnly className="bg-slate-50" /></Field><Field label="Урилгын код"><Input value={tender.invitationCode} readOnly className="bg-slate-50" /></Field>
-          <Field label="Тендерийн төрөл" error={errors.tenderType}><Select value={tender.tenderType} onValueChange={(value) => update("tenderType", value)}><SelectTrigger><SelectValue placeholder="Сонгох" /></SelectTrigger><SelectContent><SelectItem value="Бараа">Бараа</SelectItem><SelectItem value="Ажил">Ажил</SelectItem><SelectItem value="Үйлчилгээ">Үйлчилгээ</SelectItem><SelectItem value="Зөвлөх үйлчилгээ">Зөвлөх үйлчилгээ</SelectItem></SelectContent></Select></Field>
-          <Field label="Худалдан авалтын төрөл" error={errors.purchaseType}><Select value={tender.purchaseType} onValueChange={(value) => update("purchaseType", value)}><SelectTrigger><SelectValue placeholder="Сонгох" /></SelectTrigger><SelectContent><SelectItem value="Нээлттэй тендер">Нээлттэй тендер</SelectItem><SelectItem value="Үнийн санал авах">Үнийн санал авах</SelectItem><SelectItem value="Хязгаарлагдмал тендер">Хязгаарлагдмал тендер</SelectItem></SelectContent></Select></Field>
-          <Field label="Хариуцсан нэгж" error={errors.department}><Select value={tender.department} onValueChange={(value) => update("department", value)}><SelectTrigger><SelectValue placeholder="Сонгох" /></SelectTrigger><SelectContent>{["Хангамжийн газар", "Уурхайн техникийн газар", "Мэдээллийн технологийн газар", "Үйл ажиллагааны газар", "Хүний нөөц, захиргааны газар"].map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent></Select></Field>
+          <Field label="Тендерийн төрөл" error={errors.tenderType}><Select value={tender.tenderType} onValueChange={(value) => update("tenderType", value)}><SelectTrigger><SelectValue placeholder="Сонгох" /></SelectTrigger><SelectContent>{options.tenderTypes.map((item) => <SelectItem key={item.tendertypeid} value={item.tendertypename}>{item.tendertypename}</SelectItem>)}</SelectContent></Select></Field>
+          <Field label="Худалдан авалтын төрөл" error={errors.purchaseType}><Select value={tender.purchaseType} onValueChange={(value) => update("purchaseType", value)}><SelectTrigger><SelectValue placeholder="Сонгох" /></SelectTrigger><SelectContent>{options.purchaseTypes.map((item) => <SelectItem key={item.purchasetypeid} value={item.purchasetypename}>{item.purchasetypename}</SelectItem>)}</SelectContent></Select></Field>
+          <Field label="Хариуцсан нэгж" error={errors.department}><Select value={tender.department} onValueChange={(value) => update("department", value)}><SelectTrigger><SelectValue placeholder="Сонгох" /></SelectTrigger><SelectContent>{options.departments.map((item) => <SelectItem key={item.departmentid} value={item.departmentname}>{item.departmentname}</SelectItem>)}</SelectContent></Select></Field>
           <Field label="Төсөвт өртөг (₮)" error={errors.budget}><Input type="number" min="0" value={tender.budget || ""} onChange={(event) => update("budget", Number(event.target.value))} placeholder="0" /><p className="text-xs font-medium text-orange-600">{formatEmployeeMoney(tender.budget)}</p></Field>
           <Field label="Тайлбар" wide><Textarea value={tender.description} onChange={(event) => update("description", event.target.value)} placeholder="Тендерийн зорилго, хамрах хүрээ..." className="min-h-28" /></Field>
         </div></Section>}
@@ -174,9 +245,9 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
         {step === 4 && <div className="space-y-6"><Section title="Тавигдах шаардлага" description="Нийлүүлэгчийн хангах ерөнхий, техникийн болон санхүүгийн шаардлагууд."><div className="grid gap-3 lg:grid-cols-[1fr_180px_180px_auto]"><Input value={requirementDraft.name} onChange={(event) => setRequirementDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Шаардлагын нэр" /><Select value={requirementDraft.type} onValueChange={(value: EmployeeRequirement["type"]) => setRequirementDraft((current) => ({ ...current, type: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="general">Ерөнхий</SelectItem><SelectItem value="technical">Техникийн</SelectItem><SelectItem value="financial">Санхүүгийн</SelectItem></SelectContent></Select><label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm"><Checkbox checked={requirementDraft.documentRequired} onCheckedChange={(checked) => setRequirementDraft((current) => ({ ...current, documentRequired: checked === true }))} />Баримт шаардах</label><Button type="button" onClick={addRequirement}><Plus className="h-4 w-4" /></Button></div>{errors.requirements && <ErrorText>{errors.requirements}</ErrorText>}<div className="mt-4 space-y-2">{tender.requirements.map((item) => <Row key={item.id} title={item.name} meta={`${requirementNames[item.type]}${item.documentRequired ? " • Баримттай" : ""}`} onDelete={() => update("requirements", tender.requirements.filter((value) => value.id !== item.id))} />)}</div></Section>
           <Section title="Үнэлгээний шалгуур" description={`Нийт жин заавал 100% байна. Одоогийн нийлбэр: ${criteriaWeight}%`}><div className="grid gap-3 lg:grid-cols-[1fr_180px_120px_auto]"><Input value={criterionDraft.name} onChange={(event) => setCriterionDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Шалгуурын нэр" /><Select value={criterionDraft.type} onValueChange={(value: EmployeeCriterion["type"]) => setCriterionDraft((current) => ({ ...current, type: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="technical">Техникийн</SelectItem><SelectItem value="financial">Санхүүгийн</SelectItem><SelectItem value="experience">Туршлага</SelectItem></SelectContent></Select><Input type="number" min="1" max="100" value={criterionDraft.weight} onChange={(event) => setCriterionDraft((current) => ({ ...current, weight: event.target.value }))} placeholder="Жин %" /><Button type="button" onClick={addCriterion}><Plus className="h-4 w-4" /></Button></div>{errors.criteria && <ErrorText>{errors.criteria}</ErrorText>}<div className="mt-4 space-y-2">{tender.criteria.map((item) => <Row key={item.id} title={item.name} meta={`${criterionNames[item.type]} • ${item.weight}%`} onDelete={() => update("criteria", tender.criteria.filter((value) => value.id !== item.id))} />)}</div><div className="mt-4 h-2 rounded-full bg-slate-100"><div className={cn("h-full rounded-full", criteriaWeight === 100 ? "bg-emerald-500" : criteriaWeight > 100 ? "bg-red-500" : "bg-orange-500")} style={{ width: `${Math.min(criteriaWeight, 100)}%` }} /></div></Section></div>}
 
-        {step === 5 && <Section title="Тендерийн баримт бичиг" description="Техникийн тодорхойлолт, маягт болон гэрээний төслийг хавсаргана."><label className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-10 text-center hover:border-orange-300"><Upload className="mx-auto h-9 w-9 text-slate-400" /><p className="mt-3 text-sm font-medium text-slate-700">Файл сонгох эсвэл энд чирж оруулах</p><p className="mt-1 text-xs text-slate-500">PDF, DOCX, XLSX — dummy metadata байдлаар хадгална</p><input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx" className="hidden" onChange={uploadDocuments} /></label>{errors.documents && <ErrorText>{errors.documents}</ErrorText>}<div className="mt-5 space-y-3">{tender.documents.map((document) => <Row key={document.id} title={document.name} meta={`${document.type.toUpperCase()} • ${document.size}`} icon={<FileText className="h-5 w-5 text-orange-500" />} onDelete={() => update("documents", tender.documents.filter((item) => item.id !== document.id))} />)}</div></Section>}
+        {step === 5 && <Section title="Тендерийн баримт бичиг" description="Техникийн тодорхойлолт, маягт болон гэрээний төслийг хавсаргана."><label className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-10 text-center hover:border-orange-300"><Upload className="mx-auto h-9 w-9 text-slate-400" /><p className="mt-3 text-sm font-medium text-slate-700">Файл сонгох эсвэл энд чирж оруулах</p><p className="mt-1 text-xs text-slate-500">PDF, DOCX, XLSX файлыг backend storage-д хадгална</p><input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx" className="hidden" onChange={uploadDocuments} /></label>{errors.documents && <ErrorText>{errors.documents}</ErrorText>}<div className="mt-5 space-y-3">{tender.documents.map((document) => <Row key={document.id} title={document.name} meta={`${document.type.toUpperCase()} • ${document.size}`} icon={<FileText className="h-5 w-5 text-orange-500" />} onDelete={() => void removeDocument(document)} />)}</div></Section>}
 
-        {step === 6 && <Section title="Үнэлгээний хороо" description="Backend-ийн нээх дараалал: Нарийн бичиг → Дарга → Дотоод хяналт."><div className="grid gap-3 lg:grid-cols-[1fr_220px_auto]"><Select value={memberDraft.employeeEmail} onValueChange={(value) => setMemberDraft((current) => ({ ...current, employeeEmail: value }))}><SelectTrigger><SelectValue placeholder="Ажилтан сонгох" /></SelectTrigger><SelectContent>{employees.map((employee) => <SelectItem key={employee.email} value={employee.email}>{employee.name} — {employee.position}</SelectItem>)}</SelectContent></Select><Select value={memberDraft.role} onValueChange={(value: EmployeeMember["role"]) => setMemberDraft((current) => ({ ...current, role: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="secretary">Нарийн бичиг</SelectItem><SelectItem value="chair">Дарга</SelectItem><SelectItem value="member">Гишүүн</SelectItem><SelectItem value="internal-control">Дотоод хяналт</SelectItem></SelectContent></Select><Button type="button" onClick={addMember} className="bg-orange-500 hover:bg-orange-600"><Plus className="mr-2 h-4 w-4" />Нэмэх</Button></div>{errors.members && <ErrorText>{errors.members}</ErrorText>}<div className="mt-5 grid gap-3 md:grid-cols-2">{tender.members.map((member) => <div key={member.id} className="flex items-start gap-3 rounded-xl border border-slate-200 p-4"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-50 font-bold text-orange-600">{member.name.slice(0, 1)}</span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="font-medium text-slate-900">{member.name}</p><Badge variant="secondary">{roleNames[member.role]}</Badge></div><p className="mt-1 text-xs text-slate-500">{member.position}</p><p className="mt-1 text-xs text-slate-400">{member.email}</p></div><Button type="button" variant="ghost" size="icon" onClick={() => update("members", tender.members.filter((item) => item.id !== member.id))}><Trash2 className="h-4 w-4" /></Button></div>)}</div></Section>}
+        {step === 6 && <Section title="Үнэлгээний хороо" description="Backend-ийн нээх дараалал: Нарийн бичиг → Дарга → Дотоод хяналт."><div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto]"><div className="space-y-2"><Input value={employeeQuery} onChange={(event) => setEmployeeQuery(event.target.value)} placeholder="Ажилтны нэр, имэйл эсвэл ID-аар хайх" /><Select value={memberDraft.employeeId} onValueChange={(value) => { setMemberDraft((current) => ({ ...current, employeeId: value })); const employee = employees.find((item) => String(item.empid) === value); if (employee) setEmployeeQuery(employee.empname || String(employee.empid)) }}><SelectTrigger className="w-full"><SelectValue placeholder="Ажилтан сонгох" /></SelectTrigger><SelectContent>{committeeEmployees.map((employee) => <SelectItem key={employee.empid} value={String(employee.empid)}>{employee.empname || `Ажилтан #${employee.empid}`} — {employee.positionname || "Албан тушаалгүй"}</SelectItem>)}</SelectContent></Select></div><Select value={memberDraft.role} onValueChange={(value: EmployeeMember["role"]) => setMemberDraft((current) => ({ ...current, role: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="secretary">Нарийн бичиг</SelectItem><SelectItem value="chair">Дарга</SelectItem><SelectItem value="member">Гишүүн</SelectItem><SelectItem value="internal-control">Дотоод хяналт</SelectItem></SelectContent></Select><Button type="button" onClick={addMember} className="bg-orange-500 hover:bg-orange-600" disabled={!memberDraft.employeeId}><Plus className="mr-2 h-4 w-4" />Нэмэх</Button></div>{!employees.length && <ErrorText>TBLEMP хүснэгтэд сонгох ажилтан бүртгэгдээгүй байна.</ErrorText>}{employeeQuery.trim().length > 1 && !committeeEmployees.length && <ErrorText>Тохирох ажилтан олдсонгүй.</ErrorText>}{errors.members && <ErrorText>{errors.members}</ErrorText>}<div className="mt-5 grid gap-3 md:grid-cols-2">{tender.members.map((member) => <div key={member.id} className="flex items-start gap-3 rounded-xl border border-slate-200 p-4"><span className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-50 font-bold text-orange-600">{member.name.slice(0, 1)}</span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="font-medium text-slate-900">{member.name}</p><Badge variant="secondary">{roleNames[member.role]}</Badge></div><p className="mt-1 text-xs text-slate-500">{member.position}</p><p className="mt-1 text-xs text-slate-400">{member.email || `Ажилтны ID: ${member.employeeId}`}</p></div><Button type="button" variant="ghost" size="icon" onClick={() => update("members", tender.members.filter((item) => item.id !== member.id))}><Trash2 className="h-4 w-4" /></Button></div>)}</div></Section>}
 
         {step === 7 && <Section title="Хянаж нийтлэх" description="Бүх хэсгийг шалгасны дараа нийлүүлэгчдэд тендерийн урилгыг нийтэлнэ."><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{steps.slice(0, 6).map((item, index) => { const done = completion?.checks[index]; const Icon = item.icon; return <button type="button" key={item.id} onClick={() => setStep(item.id)} className={cn("rounded-xl border p-4 text-left", done ? "border-emerald-200 bg-emerald-50/60" : "border-amber-200 bg-amber-50/60")}><div className="flex items-center justify-between"><Icon className={cn("h-5 w-5", done ? "text-emerald-600" : "text-amber-600")} />{done ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : <AlertCircle className="h-5 w-5 text-amber-600" />}</div><p className="mt-3 font-medium text-slate-900">{item.label}</p><p className="mt-1 text-xs text-slate-500">{done ? "Бүрэн" : "Мэдээлэл дутуу"}</p></button> })}</div><div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-5"><dl className="grid gap-4 text-sm sm:grid-cols-2"><Summary label="Тендер" value={tender.name || "—"} /><Summary label="Код" value={tender.tenderCode} /><Summary label="Төсөв" value={formatEmployeeMoney(tender.budget)} /><Summary label="Санал хүлээн авах" value={tender.acceptDate.replace("T", " ") || "—"} /><Summary label="Багц" value={`${tender.batches.length}`} /><Summary label="Шалгуурын жин" value={`${criteriaWeight}%`} /></dl></div><div className="mt-6 flex items-center justify-between gap-4 rounded-xl border border-orange-100 bg-orange-50 p-5"><div><p className="font-semibold text-slate-900">Нийлүүлэгчдэд нийтлэх</p><p className="mt-1 text-sm text-slate-600">Нийтэлсний дараа тендер Vendor талын нээлттэй жагсаалтад харагдах төлөвт орно.</p></div><Button type="button" disabled={completion?.percent !== 100 || tender.status === "published"} onClick={() => setPublishOpen(true)} className="shrink-0 bg-orange-500 hover:bg-orange-600"><Send className="mr-2 h-4 w-4" />{tender.status === "published" ? "Нийтэлсэн" : "Нийтлэх"}</Button></div></Section>}
 
@@ -185,7 +256,7 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
     </div>
   </div>
 
-  <Dialog open={publishOpen} onOpenChange={setPublishOpen}><DialogContent><DialogHeader><DialogTitle>Тендерийг нийтлэх үү?</DialogTitle><DialogDescription>{tender.tenderCode} тендерийн урилга нийлүүлэгчдэд нээлттэй болно. Энэ demo хувилбарт зөвхөн localStorage төлөв шинэчлэгдэнэ.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setPublishOpen(false)}>Цуцлах</Button><Button onClick={publish} className="bg-orange-500 hover:bg-orange-600"><Send className="mr-2 h-4 w-4" />Нийтлэх</Button></DialogFooter></DialogContent></Dialog>
+  <Dialog open={publishOpen} onOpenChange={setPublishOpen}><DialogContent><DialogHeader><DialogTitle>Тендерийг нийтлэх үү?</DialogTitle><DialogDescription>{tender.tenderCode} тендерийн урилга backend мэдээллийн санд нийтлэгдэж, нийлүүлэгчдийн жагсаалтад орно.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setPublishOpen(false)}>Цуцлах</Button><Button onClick={() => void publish()} className="bg-orange-500 hover:bg-orange-600"><Send className="mr-2 h-4 w-4" />Нийтлэх</Button></DialogFooter></DialogContent></Dialog>
   </div>
 }
 

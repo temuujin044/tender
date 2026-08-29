@@ -2,7 +2,7 @@
 
 import { use, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { notFound, useRouter } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { AlertCircle, ArrowLeft, ArrowRight, Check, CheckCircle2, FileText, Loader2, Package, Send, Upload, X } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -11,14 +11,12 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
 import { useAuthState } from "@/hooks/use-auth-state"
-import { getLoginRedirectPath } from "@/lib/auth"
-import { formatMoney, getDummyParticipations, getDummySubmissions, saveDummySubmission, setDummyParticipation } from "@/lib/dummy-tender-store"
+import { useTenderDetail } from "@/hooks/use-tenders"
+import { getLoginRedirectPath, getStoredUser } from "@/lib/auth"
+import { fetchQuotes, joinTender, saveQuote, uploadTenderJoinDocument } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import { getTenderById, statusConfig } from "@/lib/tender-data"
-import type { Tender } from "@/lib/tender-data"
-import { EMPLOYEE_STORE_EVENT, getPublishedEmployeeTendersForVendor } from "@/lib/dummy-employee-store"
+import { statusConfig } from "@/lib/tender-data"
 
 type QuoteForm = {
   batchId: string
@@ -26,7 +24,6 @@ type QuoteForm = {
   quoteAmount: string
   deliveryDate: string
   deliveryDays: string
-  note: string
   confirm: boolean
 }
 
@@ -37,21 +34,23 @@ const steps = [
   { id: 4, label: "Баталгаажуулах" },
 ]
 
+function formatMoney(value: number) {
+  return `${new Intl.NumberFormat("mn-MN", { maximumFractionDigits: 0 }).format(value)} ₮`
+}
+
 export default function SubmitQuotePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
   const { isAuthenticated, isReady } = useAuthState()
-  const staticTender = getTenderById(id)
-  const [tender, setTender] = useState<Tender | null>(staticTender ?? null)
-  const [tenderReady, setTenderReady] = useState(Boolean(staticTender))
+  const { tender, loading: tenderLoading, error: tenderError, reload } = useTenderDetail(Number(id))
   const [step, setStep] = useState(1)
   const [isSaving, setIsSaving] = useState(false)
   const [participating, setParticipating] = useState(false)
-  const [files, setFiles] = useState<{ name: string; size: string }[]>([])
+  const [files, setFiles] = useState<{ name: string; size: string; file?: File }[]>([])
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [form, setForm] = useState<QuoteForm>({
     batchId: "", quoteDate: new Date().toISOString().slice(0, 10), quoteAmount: "",
-    deliveryDate: "", deliveryDays: "", note: "", confirm: false,
+    deliveryDate: "", deliveryDays: "", confirm: false,
   })
 
   const isOpen = tender?.status === "open" || tender?.status === "closing-soon"
@@ -59,42 +58,35 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
   const requiredDocumentCount = tender?.requirements.filter((item) => item.documentRequired).length ?? 0
 
   useEffect(() => {
-    if (staticTender) return
-    const sync = () => {
-      setTender(getPublishedEmployeeTendersForVendor().find((item) => item.id === id) ?? null)
-      setTenderReady(true)
-    }
-    sync()
-    window.addEventListener(EMPLOYEE_STORE_EVENT, sync)
-    return () => window.removeEventListener(EMPLOYEE_STORE_EVENT, sync)
-  }, [id, staticTender])
-
-  useEffect(() => {
     if (isReady && !isAuthenticated) router.replace(getLoginRedirectPath(`/tenders/${id}/submit`))
-    if (tenderReady && isReady && isAuthenticated && !isOpen) router.replace(`/tenders/${id}`)
-  }, [id, isAuthenticated, isOpen, isReady, router, tenderReady])
+    if (!tenderLoading && isReady && isAuthenticated && !isOpen) router.replace(`/tenders/${id}`)
+  }, [id, isAuthenticated, isOpen, isReady, router, tenderLoading])
 
   useEffect(() => {
-    const joined = getDummyParticipations().includes(id)
-    setParticipating(joined)
-    const existing = getDummySubmissions().find((item) => item.tenderId === id)
-    if (existing) {
-      setForm({
-        batchId: String(existing.batchId), quoteDate: existing.quoteDate,
-        quoteAmount: String(existing.quoteAmount), deliveryDate: existing.deliveryDate,
-        deliveryDays: String(existing.deliveryDays), note: existing.note, confirm: false,
-      })
-      setFiles(existing.files.map((name) => ({ name, size: "Хадгалсан" })))
-    }
-  }, [id])
+    const user = getStoredUser()
+    if (!tender || user?.role !== "vendor" || !user.vendorId) return
+    void fetchQuotes(tender.invitationId, user.vendorId).then((quotes) => {
+      const existing = quotes[0]
+      if (!existing) return
+      setParticipating(true)
+      setForm((current) => ({
+        ...current,
+        batchId: String(tender.batches[0]?.id ?? 0),
+        quoteDate: existing.qoutedate?.replaceAll(".", "-") ?? current.quoteDate,
+        quoteAmount: String(existing.qouteamount ?? ""),
+        deliveryDate: existing.deliverydate?.replaceAll(".", "-") ?? "",
+        deliveryDays: String(existing.deliveryday ?? ""),
+      }))
+    }).catch((requestError) => setErrors({ submit: requestError instanceof Error ? requestError.message : "Өмнөх санал ачаалж чадсангүй." }))
+  }, [tender])
 
   const moneyPreview = useMemo(() => {
     const amount = Number(form.quoteAmount.replaceAll(",", ""))
     return Number.isFinite(amount) && amount > 0 ? formatMoney(amount) : "0 ₮"
   }, [form.quoteAmount])
 
-  if (!tenderReady || !isReady) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-orange-500" /></div>
-  if (!tender) notFound()
+  if (tenderLoading || !isReady) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-orange-500" /></div>
+  if (tenderError || !tender) return <div className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-center justify-center px-6 text-center"><p className="font-semibold text-red-700">{tenderError || "Тендерийн мэдээлэл олдсонгүй."}</p><Button variant="outline" className="mt-4" onClick={() => void reload()}>Дахин оролдох</Button></div>
   if (!isAuthenticated || !isOpen) return null
 
   const update = <K extends keyof QuoteForm>(key: K, value: QuoteForm[K]) => {
@@ -119,10 +111,6 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
 
   const nextStep = () => {
     if (!validateStep()) return
-    if (step === 1 && !participating) {
-      setDummyParticipation(id)
-      setParticipating(true)
-    }
     setStep((current) => Math.min(current + 1, 4))
     window.scrollTo({ top: 0, behavior: "smooth" })
   }
@@ -134,22 +122,48 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
       setErrors((current) => ({ ...current, files: `${oversized.name} файл 10MB-аас их байна.` }))
       return
     }
-    setFiles((current) => [...current, ...selected.map((file) => ({ name: file.name, size: `${(file.size / 1024 / 1024).toFixed(2)} MB` }))])
+    setFiles((current) => [...current, ...selected.map((file) => ({ name: file.name, size: `${(file.size / 1024 / 1024).toFixed(2)} MB`, file }))])
     setErrors((current) => { const next = { ...current }; delete next.files; return next })
   }
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!validateStep() || !selectedBatch) return
+    const user = getStoredUser()
+    if (!user?.vendorId) return router.push(getLoginRedirectPath(`/tenders/${id}/submit`))
     setIsSaving(true)
-    await new Promise((resolve) => setTimeout(resolve, 700))
-    saveDummySubmission({
-      tenderId: id, invitationId: tender.invitationId, batchId: selectedBatch.id,
-      batchName: selectedBatch.name, quoteDate: form.quoteDate,
-      quoteAmount: Number(form.quoteAmount.replaceAll(",", "")), deliveryDate: form.deliveryDate,
-      deliveryDays: Number(form.deliveryDays), note: form.note.trim(), files: files.map((file) => file.name),
-    })
-    router.push(`/tenders/${id}?submitted=true`)
+    setErrors((current) => { const next = { ...current }; delete next.submit; return next })
+    try {
+      const existingQuotes = await fetchQuotes(tender.invitationId, user.vendorId)
+      for (const selectedFile of files) {
+        if (!selectedFile.file) continue
+        await uploadTenderJoinDocument({
+          file: selectedFile.file,
+          invitationId: tender.invitationId,
+          tenderId: tender.tenderId,
+          vendorId: user.vendorId,
+          createdBy: user.username,
+          batchId: selectedBatch.id,
+        })
+      }
+      if (!participating) await joinTender({ invitationId: tender.invitationId, tenderId: tender.tenderId, vendorId: user.vendorId, createdBy: user.username })
+      await saveQuote({
+        quoteId: existingQuotes[0]?.qouteid,
+        quoteDate: form.quoteDate,
+        quoteAmount: Number(form.quoteAmount.replaceAll(",", "")),
+        deliveryDate: form.deliveryDate,
+        deliveryDays: Number(form.deliveryDays),
+        invitationId: tender.invitationId,
+        tenderId: tender.tenderId,
+        batchId: selectedBatch.id,
+        vendorId: user.vendorId,
+        createdBy: user.username,
+      })
+      router.push(`/tenders/${id}?submitted=true`)
+    } catch (requestError) {
+      setErrors((current) => ({ ...current, submit: requestError instanceof Error ? requestError.message : "Үнийн санал хадгалагдсангүй." }))
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -173,7 +187,7 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
           {step === 1 && <Card className="border-slate-200 shadow-sm"><CardHeader><CardTitle className="flex items-center gap-2"><Package className="h-5 w-5 text-orange-500" />Оролцох багцаа сонгох</CardTitle><CardDescription>Backend-ийн TBLTENDERBATCH бүтэцтэй ижил — багц бүрд тусдаа үнийн санал хадгалагдана.</CardDescription></CardHeader><CardContent className="space-y-4">
             <div className="grid gap-3">{tender.batches.map((batch) => <button key={batch.id} type="button" onClick={() => update("batchId", String(batch.id))} className={cn("flex items-center justify-between rounded-xl border p-4 text-left transition-colors", form.batchId === String(batch.id) ? "border-orange-500 bg-orange-50" : "border-slate-200 hover:border-slate-300")}><div><p className="text-xs font-semibold text-orange-600">{batch.code}</p><p className="mt-1 font-medium text-slate-900">{batch.name}</p></div><div className={cn("flex h-5 w-5 items-center justify-center rounded-full border", form.batchId === String(batch.id) ? "border-orange-500 bg-orange-500 text-white" : "border-slate-300")}>{form.batchId === String(batch.id) && <Check className="h-3 w-3" />}</div></button>)}</div>
             {errors.batchId && <p className="text-sm text-red-600">{errors.batchId}</p>}
-            <div className="flex items-start gap-3 rounded-xl bg-slate-50 p-4 text-sm text-slate-600"><CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" /><p>{participating ? "Таны оролцох хүсэлт бүртгэгдсэн байна." : "Үргэлжлүүлэхэд оролцох хүсэлт dummy төлөвт автоматаар бүртгэгдэнэ."}</p></div>
+            <div className="flex items-start gap-3 rounded-xl bg-slate-50 p-4 text-sm text-slate-600"><CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" /><p>{participating ? "Таны оролцоо backend-д бүртгэгдсэн байна." : "Баримт болон үнийн саналыг баталгаажуулах үед оролцоо backend-д бүртгэгдэнэ."}</p></div>
           </CardContent></Card>}
 
           {step === 2 && <Card className="border-slate-200 shadow-sm"><CardHeader><CardTitle>Үнийн санал, хүргэлт</CardTitle><CardDescription>Үнийн дүн, саналын огноо, хүргэлтийн огноо болон хоногийг оруулна.</CardDescription></CardHeader><CardContent className="grid gap-5 sm:grid-cols-2">
@@ -181,7 +195,6 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
             <Field label="Үнийн саналын дүн (₮)" error={errors.quoteAmount}><Input inputMode="numeric" value={form.quoteAmount} onChange={(event) => update("quoteAmount", event.target.value.replace(/[^0-9]/g, ""))} placeholder="145000000" /><p className="text-xs font-medium text-orange-600">{moneyPreview}</p></Field>
             <Field label="Хүргэлтийн огноо" error={errors.deliveryDate}><Input type="date" value={form.deliveryDate} onChange={(event) => update("deliveryDate", event.target.value)} /></Field>
             <Field label="Хүргэлтийн хугацаа (хоног)" error={errors.deliveryDays}><Input type="number" min="1" value={form.deliveryDays} onChange={(event) => update("deliveryDays", event.target.value)} placeholder="30" /></Field>
-            <div className="space-y-2 sm:col-span-2"><Label htmlFor="note">Нэмэлт тайлбар</Label><Textarea id="note" value={form.note} onChange={(event) => update("note", event.target.value)} placeholder="Нийлүүлэлтийн нөхцөл, баталгаа болон бусад тайлбар..." className="min-h-28" /></div>
           </CardContent></Card>}
 
           {step === 3 && <Card className="border-slate-200 shadow-sm"><CardHeader><CardTitle className="flex items-center gap-2"><Upload className="h-5 w-5 text-orange-500" />Нотлох баримт хавсаргах</CardTitle><CardDescription>Шаардлагын дагуу багадаа {requiredDocumentCount} файл хавсаргана. Файл тус бүр 10MB хүртэл.</CardDescription></CardHeader><CardContent className="space-y-5">
@@ -192,11 +205,11 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
 
           {step === 4 && <Card className="border-slate-200 shadow-sm"><CardHeader><CardTitle>Мэдээллээ шалгаж баталгаажуулах</CardTitle><CardDescription>Илгээсний дараа хугацаа дуусахаас өмнө саналаа засах боломжтой.</CardDescription></CardHeader><CardContent className="space-y-6">
             <dl className="grid gap-4 rounded-xl bg-slate-50 p-5 text-sm sm:grid-cols-2"><Summary label="Багц" value={selectedBatch?.name ?? "—"} /><Summary label="Үнийн санал" value={moneyPreview} /><Summary label="Саналын огноо" value={form.quoteDate} /><Summary label="Хүргэлтийн огноо" value={form.deliveryDate} /><Summary label="Хүргэлтийн хугацаа" value={`${form.deliveryDays} хоног`} /><Summary label="Хавсаргасан файл" value={`${files.length} файл`} /></dl>
-            {form.note && <div><p className="text-sm font-medium text-slate-700">Нэмэлт тайлбар</p><p className="mt-2 rounded-xl border border-slate-200 p-4 text-sm leading-6 text-slate-600">{form.note}</p></div>}
             <div className="flex items-start gap-3 rounded-xl border border-slate-200 p-4"><Checkbox id="confirm" checked={form.confirm} onCheckedChange={(checked) => update("confirm", checked === true)} className="mt-0.5" /><Label htmlFor="confirm" className="cursor-pointer font-normal leading-6">Оруулсан мэдээлэл, хавсаргасан баримт бичиг үнэн зөв бөгөөд тендерийн нөхцөлийг хүлээн зөвшөөрч байгаагаа баталж байна.</Label></div>
             {errors.confirm && <p className="text-sm text-red-600">{errors.confirm}</p>}
           </CardContent></Card>}
 
+          {errors.submit && <p className="mt-6 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"><AlertCircle className="h-4 w-4" />{errors.submit}</p>}
           <div className="mt-6 flex items-center justify-between gap-3">
             <Button type="button" variant="outline" disabled={step === 1 || isSaving} onClick={() => setStep((current) => Math.max(current - 1, 1))}><ArrowLeft className="mr-2 h-4 w-4" />Өмнөх</Button>
             {step < 4 ? <Button type="button" onClick={nextStep} className="bg-orange-500 hover:bg-orange-600">Үргэлжлүүлэх<ArrowRight className="ml-2 h-4 w-4" /></Button> : <Button type="submit" disabled={isSaving} className="bg-orange-500 hover:bg-orange-600">{isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}{isSaving ? "Хадгалж байна..." : "Санал илгээх"}</Button>}

@@ -7,12 +7,13 @@ import { useAuthState } from "@/hooks/use-auth-state";
 
 export function Footer() {
   const { isAuthenticated, isReady } = useAuthState();
+  const isLoggedIn = isReady && isAuthenticated;
   const quickLinks = [
-    { name: "Нээлттэй тендерүүд", href: "/tenders/open" },
-    ...(isReady && isAuthenticated
+    { name: "Нээлттэй тендерүүд", href: isLoggedIn ? "/tenders/open" : "/#open-tenders" },
+    ...(isLoggedIn
       ? [{ name: "Оролцсон тендер / Үр дүн", href: "/tenders/closed" }]
       : []),
-    { name: "Хэрхэн ажилладаг", href: "/how-it-works" },
+    ...(!isLoggedIn ? [{ name: "Хэрхэн ажилладаг", href: "/#how-it-works" }] : []),
     { name: "Нийлүүлэгчээр бүртгүүлэх", href: "/register" },
   ];
 
@@ -49,14 +50,13 @@ export function Footer() {
             </ul>
           </div>
 
-          {/* Support */}
+          {/* Information */}
           <div>
             <h3 className="mb-5 text-sm font-semibold uppercase tracking-wider text-foreground">
-              Тусламж
+              Мэдээлэл
             </h3>
             <ul className="space-y-3.5">
               {[
-                { name: "Тусламжийн төв", href: "/support" },
                 { name: "Түгээмэл асуултууд", href: "/faq" },
                 { name: "Үйлчилгээний нөхцөл", href: "/terms" },
                 { name: "Нууцлалын бодлого", href: "/privacy" },

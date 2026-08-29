@@ -16,10 +16,11 @@ export function Navigation() {
   const [scrolled, setScrolled] = useState(false);
   const { isAuthenticated, isReady } = useAuthState();
   const homeHref = isReady && isAuthenticated ? "/dashboard" : "/";
+  const isLoggedIn = isReady && isAuthenticated;
 
   const tenderLinks = [
-    { href: "/tenders/open", label: "Нээлттэй тендерүүд" },
-    ...(isReady && isAuthenticated
+    { href: isLoggedIn ? "/tenders/open" : "/#open-tenders", label: "Нээлттэй тендерүүд" },
+    ...(isLoggedIn
       ? [
           { href: "/tenders/closed", label: "Оролцсон тендер / Үр дүн" },
         ]
@@ -80,32 +81,25 @@ export function Navigation() {
             </Link>
           ))}
 
-          <Link
-            href="/how-it-works"
-            className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-all hover:bg-secondary/60 hover:text-foreground"
-          >
-            Хэрхэн ажилладаг
-          </Link>
+          {!isLoggedIn && (
+            <Link
+              href="/#how-it-works"
+              className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-all hover:bg-secondary/60 hover:text-foreground"
+            >
+              Хэрхэн ажилладаг
+            </Link>
+          )}
 
-          <Link
-            href="/support"
-            className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-all hover:bg-secondary/60 hover:text-foreground"
-          >
-            Тусламж
-          </Link>
         </nav>
 
         <div className="hidden items-center gap-3 md:flex">
           <Button
             variant="ghost"
             size="icon"
-            className="relative rounded-full text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
+            className="rounded-full text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
           >
             <span className="sr-only">Мэдэгдэл харах</span>
             <Bell className="h-5 w-5" />
-            <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground ring-2 ring-background">
-              3
-            </span>
           </Button>
           <div className="mx-1 h-5 w-px bg-border/60" />
 
@@ -147,12 +141,9 @@ export function Navigation() {
         </div>
 
         <div className="flex items-center gap-4 md:hidden">
-          <Button variant="ghost" size="icon" className="relative rounded-full">
+          <Button variant="ghost" size="icon" className="rounded-full">
             <span className="sr-only">Мэдэгдэл</span>
             <Bell className="h-5 w-5 text-foreground/80" />
-            <span className="absolute right-1.5 top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-destructive text-[9px] font-bold text-destructive-foreground">
-              3
-            </span>
           </Button>
 
           <button
@@ -198,21 +189,15 @@ export function Navigation() {
               </Link>
             ))}
 
-            <Link
-              href="/how-it-works"
-              className="flex items-center rounded-lg px-4 py-3.5 text-base font-medium text-foreground transition-colors hover:bg-secondary active:bg-secondary/80"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Хэрхэн ажилладаг
-            </Link>
-
-            <Link
-              href="/support"
-              className="flex items-center rounded-lg px-4 py-3.5 text-base font-medium text-foreground transition-colors hover:bg-secondary active:bg-secondary/80"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Тусламж
-            </Link>
+            {!isLoggedIn && (
+              <Link
+                href="/#how-it-works"
+                className="flex items-center rounded-lg px-4 py-3.5 text-base font-medium text-foreground transition-colors hover:bg-secondary active:bg-secondary/80"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Хэрхэн ажилладаг
+              </Link>
+            )}
 
             <div className="mt-8 flex flex-col gap-3 border-t border-border/40 pb-10 pt-8">
               {isReady && isAuthenticated ? (

@@ -47,7 +47,7 @@ import {
   validateCredentialFields,
 } from "@/lib/company-form";
 import { cn } from "@/lib/utils";
-import { registerDummyVendor } from "@/lib/auth";
+import { registerVendor } from "@/lib/api";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -141,14 +141,13 @@ export default function RegisterPage() {
     }
 
     setIsLoading(true);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    const result = registerDummyVendor(formData);
-    if (!result.success) {
-      setErrors({ username: result.message ?? "Бүртгэл хадгалагдсангүй." });
+    try {
+      await registerVendor(formData);
+      router.push("/login?registered=true");
+    } catch (requestError) {
+      setErrors({ username: requestError instanceof Error ? requestError.message : "Бүртгэл хадгалагдсангүй." });
       setIsLoading(false);
-      return;
     }
-    router.push("/login?registered=true");
   };
 
   const steps = [

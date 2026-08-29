@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from "react"
 import Link from "next/link"
-import { notFound, useRouter } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { ArrowLeft, Banknote, Building2, Calendar, CheckCircle2, Clock3, Download, FileText, Loader2, MessageSquare, PackageCheck, Send, Users } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -12,94 +12,107 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { useAuthState } from "@/hooks/use-auth-state"
-import { getLoginRedirectPath } from "@/lib/auth"
-import { addDummyComment, DUMMY_STORE_EVENT, formatMoney, getDummyComments, getDummyParticipations, getDummySubmissions, setDummyParticipation, type DummyComment, type DummySubmission } from "@/lib/dummy-tender-store"
-import { getTenderById, isPublicTenderStatus, statusConfig } from "@/lib/tender-data"
-import type { Tender } from "@/lib/tender-data"
-import { EMPLOYEE_STORE_EVENT, getPublishedEmployeeTendersForVendor } from "@/lib/dummy-employee-store"
+import { useTenderDetail } from "@/hooks/use-tenders"
+import { getLoginRedirectPath, getStoredUser } from "@/lib/auth"
+import { fetchComments, fetchQuotes, getDownloadUrl, saveComment, type ApiQuote } from "@/lib/api"
+import { statusConfig } from "@/lib/tender-data"
+import type { TenderDocument } from "@/lib/tender-data"
 
 const requirementLabels = { required: "Ерөнхий шаардлага", technical: "Техникийн шаардлага", financial: "Санхүүгийн шаардлага" }
+type ViewComment = { id: number; title: string; message: string; author: "buyer" | "vendor" }
+
+function normalizeComments(rows: Record<string, unknown>[]): ViewComment[] {
+  return rows.map((row, index) => ({
+    id: Number(row.commentid ?? index),
+    title: String(row.commenttitle ?? "Тодруулга"),
+    message: String(row.comment ?? ""),
+    author: Number(row.vendorid ?? 0) > 0 ? "vendor" : "buyer",
+  }))
+}
+
+function formatQuoteMoney(value: number | string | undefined) {
+  return `${new Intl.NumberFormat("mn-MN", { maximumFractionDigits: 0 }).format(Number(value ?? 0))} ₮`
+}
 
 export default function TenderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
-  const { isAuthenticated, isReady } = useAuthState()
-  const staticTender = getTenderById(id)
-  const [tender, setTender] = useState<Tender | null>(staticTender ?? null)
-  const [tenderReady, setTenderReady] = useState(Boolean(staticTender))
+  const { isAuthenticated } = useAuthState()
+  const { tender, loading: tenderLoading, error: tenderError, reload } = useTenderDetail(Number(id))
   const [participating, setParticipating] = useState(false)
-  const [submissions, setSubmissions] = useState<DummySubmission[]>([])
-  const [comments, setComments] = useState<DummyComment[]>([])
+  const [submissions, setSubmissions] = useState<ApiQuote[]>([])
+  const [comments, setComments] = useState<ViewComment[]>([])
   const [commentTitle, setCommentTitle] = useState("")
   const [commentMessage, setCommentMessage] = useState("")
   const [notice, setNotice] = useState("")
 
-  const isPublicTender = tender ? isPublicTenderStatus(tender.status) : false
   const isOpen = tender?.status === "open" || tender?.status === "closing-soon"
 
   useEffect(() => {
-    if (staticTender) return
-    const sync = () => {
-      setTender(getPublishedEmployeeTendersForVendor().find((item) => item.id === id) ?? null)
-      setTenderReady(true)
+    const user = getStoredUser()
+    if (!tender || user?.role !== "vendor" || !user.vendorId) return
+    const loadVendorData = async () => {
+      try {
+        const [quoteRows, commentRows] = await Promise.all([
+          fetchQuotes(tender.invitationId, user.vendorId!),
+          fetchComments(tender.invitationId, user.vendorId!),
+        ])
+        setSubmissions(quoteRows)
+        setComments(normalizeComments(commentRows))
+        setParticipating(quoteRows.length > 0)
+      } catch (requestError) {
+        setNotice(requestError instanceof Error ? requestError.message : "Нийлүүлэгчийн мэдээлэл ачаалж чадсангүй.")
+      }
     }
-    sync()
-    window.addEventListener(EMPLOYEE_STORE_EVENT, sync)
-    return () => window.removeEventListener(EMPLOYEE_STORE_EVENT, sync)
-  }, [id, staticTender])
-
-  useEffect(() => {
-    if (tenderReady && isReady && !isAuthenticated && !isPublicTender) router.replace(getLoginRedirectPath(`/tenders/${id}`))
-  }, [id, isAuthenticated, isPublicTender, isReady, router, tenderReady])
-
-  useEffect(() => {
-    const sync = () => {
-      setParticipating(getDummyParticipations().includes(id))
-      setSubmissions(getDummySubmissions().filter((item) => item.tenderId === id))
-      setComments(getDummyComments(id))
-    }
-    sync()
-    window.addEventListener(DUMMY_STORE_EVENT, sync)
+    void loadVendorData()
     if (new URLSearchParams(window.location.search).get("submitted")) setNotice("Таны үнийн санал амжилттай хадгалагдлаа. Хяналтын самбараас явцыг хянах боломжтой.")
-    return () => window.removeEventListener(DUMMY_STORE_EVENT, sync)
-  }, [id])
+  }, [tender])
 
-  if (!tenderReady) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
-  if (!tender) notFound()
-  if ((!isPublicTender && !isReady) || (!isPublicTender && !isAuthenticated)) {
-    return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+  if (tenderLoading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+  if (tenderError || !tender) return <div className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-center justify-center px-6 text-center"><p className="font-semibold text-red-700">{tenderError || "Тендерийн мэдээлэл олдсонгүй."}</p><Button variant="outline" className="mt-4" onClick={() => void reload()}>Дахин оролдох</Button></div>
+  const downloadDocument = async (file: TenderDocument) => {
+    if (!file.sourceId || !file.sourceType) {
+      setNotice(`${file.name}: файлын холбоос мэдээллийн санд байхгүй байна.`)
+      return
+    }
+    try {
+      const response = await fetch(getDownloadUrl(file.sourceId, file.sourceType))
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string }
+        throw new Error(body.error ?? "Файл татаж чадсангүй.")
+      }
+      const url = URL.createObjectURL(await response.blob())
+      const anchor = document.createElement("a")
+      anchor.href = url
+      anchor.download = file.name
+      anchor.click()
+      URL.revokeObjectURL(url)
+    } catch (requestError) {
+      setNotice(requestError instanceof Error ? requestError.message : "Файл татаж чадсангүй.")
+    }
   }
 
-  const joinTender = () => {
-    if (!isAuthenticated) return router.push(getLoginRedirectPath(`/tenders/${id}`))
-    setDummyParticipation(id)
-    setParticipating(true)
-    setNotice("Оролцох хүсэлт бүртгэгдлээ. Одоо багцаа сонгон үнийн санал илгээнэ үү.")
-  }
-
-  const downloadDocument = (name: string) => {
-    const blob = new Blob([`${tender.id} — ${name}\n\nЭнэ нь UI туршилтын dummy баримт бичиг.`], { type: "text/plain;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement("a")
-    anchor.href = url
-    anchor.download = `${name}.txt`
-    anchor.click()
-    URL.revokeObjectURL(url)
-  }
-
-  const submitComment = (event: React.FormEvent) => {
+  const submitComment = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!isAuthenticated) return router.push(getLoginRedirectPath(`/tenders/${id}`))
     if (!commentTitle.trim() || !commentMessage.trim()) return
-    addDummyComment(id, commentTitle.trim(), commentMessage.trim())
-    setCommentTitle("")
-    setCommentMessage("")
+    const user = getStoredUser()
+    if (!user?.vendorId) return
+    try {
+      await saveComment({ invitationId: tender.invitationId, vendorId: user.vendorId, title: commentTitle.trim(), message: commentMessage.trim() })
+      setComments(normalizeComments(await fetchComments(tender.invitationId, user.vendorId)))
+      setCommentTitle("")
+      setCommentMessage("")
+      setNotice("Тодруулга backend-д хадгалагдлаа.")
+    } catch (requestError) {
+      setNotice(requestError instanceof Error ? requestError.message : "Тодруулга хадгалагдсангүй.")
+    }
   }
 
   return (
     <div className="bg-slate-50/70 py-8 lg:py-10">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <Link href="/tenders/open" className="mb-6 inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900"><ArrowLeft className="h-4 w-4" />Тендерийн жагсаалт руу буцах</Link>
+        <Link href={isAuthenticated ? "/tenders/open" : "/#open-tenders"} className="mb-6 inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900"><ArrowLeft className="h-4 w-4" />Тендерийн жагсаалт руу буцах</Link>
 
         {notice && <div className="mb-6 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"><CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" /><span>{notice}</span></div>}
 
@@ -107,7 +120,7 @@ export default function TenderDetailPage({ params }: { params: Promise<{ id: str
           <section>
             <div className="flex flex-wrap items-center gap-2">
               <Badge className={statusConfig[tender.status].className}>{statusConfig[tender.status].label}</Badge>
-              <span className="text-sm font-medium text-slate-500">{tender.invitationCode}</span><span className="text-slate-400">•</span><span className="text-sm text-slate-500">{tender.id}</span>
+              <span className="text-sm font-medium text-slate-500">{tender.invitationCode}</span><span className="text-slate-400">•</span><span className="text-sm text-slate-500">{tender.tenderCode ?? tender.id}</span>
             </div>
             <h1 className="mt-3 max-w-4xl text-3xl font-bold tracking-tight text-slate-900">{tender.title}</h1>
             <p className="mt-4 max-w-4xl leading-7 text-slate-600">{tender.description}</p>
@@ -126,7 +139,7 @@ export default function TenderDetailPage({ params }: { params: Promise<{ id: str
               <p className="mt-1 font-semibold text-slate-900">{tender.deadline}</p><p className="mt-1 text-xs text-slate-500">Нээх: {tender.openDate}</p>
             </div>
             {isOpen ? <div className="mt-6 space-y-3">
-              {!participating ? <Button onClick={joinTender} className="h-11 w-full bg-orange-500 hover:bg-orange-600"><PackageCheck className="mr-2 h-4 w-4" />Оролцох хүсэлт илгээх</Button> :
+              {!participating ? <Link href={isAuthenticated ? `/tenders/${id}/submit` : getLoginRedirectPath(`/tenders/${id}/submit`)} className="block"><Button className="h-11 w-full bg-orange-500 hover:bg-orange-600"><PackageCheck className="mr-2 h-4 w-4" />Оролцох хүсэлт илгээх</Button></Link> :
                 <Link href={`/tenders/${id}/submit`} className="block"><Button className="h-11 w-full bg-orange-500 hover:bg-orange-600"><Send className="mr-2 h-4 w-4" />{submissions.length ? "Саналаа засах" : "Үнийн санал илгээх"}</Button></Link>}
               <p className="text-center text-xs leading-5 text-slate-500">{participating ? "Оролцох хүсэлт бүртгэгдсэн" : "Эхлээд оролцох хүсэлтээ баталгаажуулна"}</p>
             </div> : <div className="mt-6 rounded-lg bg-slate-100 p-3 text-center text-sm text-slate-600">Санал хүлээн авах хугацаа дууссан</div>}
@@ -140,12 +153,12 @@ export default function TenderDetailPage({ params }: { params: Promise<{ id: str
 
           <TabsContent value="overview" className="mt-5 grid gap-5 lg:grid-cols-2">
             <Card className="border-slate-200"><CardHeader><CardTitle className="text-base">Урилгын мэдээлэл</CardTitle></CardHeader><CardContent><dl className="space-y-4 text-sm">
-              {[["Урилгын код", tender.invitationCode], ["Тендерийн код", tender.id], ["Тендерийн төрөл", tender.purchaseType], ["Ангилал", tender.category], ["Эхлэх огноо", tender.startDate], ["Нээх огноо", tender.openDate]].map(([label, value]) => <div key={label} className="flex justify-between gap-4 border-b border-slate-100 pb-3 last:border-0"><dt className="text-slate-500">{label}</dt><dd className="text-right font-medium text-slate-900">{value}</dd></div>)}
+              {[["Урилгын код", tender.invitationCode], ["Тендерийн код", tender.tenderCode ?? tender.id], ["Тендерийн төрөл", tender.purchaseType], ["Ангилал", tender.category], ["Эхлэх огноо", tender.startDate], ["Нээх огноо", tender.openDate]].map(([label, value]) => <div key={label} className="flex justify-between gap-4 border-b border-slate-100 pb-3 last:border-0"><dt className="text-slate-500">{label}</dt><dd className="text-right font-medium text-slate-900">{value}</dd></div>)}
             </dl></CardContent></Card>
             <Card className="border-slate-200"><CardHeader><CardTitle className="text-base">Таны оролцооны төлөв</CardTitle></CardHeader><CardContent>
-              {submissions.length ? submissions.map((submission) => <div key={submission.id} className="mb-3 rounded-xl border border-slate-200 p-4 last:mb-0">
-                <div className="flex items-center justify-between gap-3"><p className="font-medium text-slate-900">{submission.batchName}</p><Badge variant="secondary">{submission.status === "submitted" ? "Илгээсэн" : submission.status === "under-review" ? "Хянагдаж байна" : "Шалгарсан"}</Badge></div>
-                <p className="mt-2 text-lg font-bold text-slate-900">{formatMoney(submission.quoteAmount)}</p><p className="mt-1 text-xs text-slate-500">Хүргэлт: {submission.deliveryDate} • {submission.deliveryDays} хоног</p>
+              {submissions.length ? submissions.map((submission) => <div key={submission.qouteid} className="mb-3 rounded-xl border border-slate-200 p-4 last:mb-0">
+                <div className="flex items-center justify-between gap-3"><p className="font-medium text-slate-900">{submission.batchname || "Тендерийн нийт санал"}</p><Badge variant="secondary">Backend-д хадгалсан</Badge></div>
+                <p className="mt-2 text-lg font-bold text-slate-900">{formatQuoteMoney(submission.qouteamount)}</p><p className="mt-1 text-xs text-slate-500">Хүргэлт: {submission.deliverydate || "Товлоогүй"} • {submission.deliveryday ?? 0} хоног</p>
               </div>) : <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Одоогоор үнийн санал илгээгээгүй байна.</div>}
             </CardContent></Card>
           </TabsContent>
@@ -155,7 +168,7 @@ export default function TenderDetailPage({ params }: { params: Promise<{ id: str
           </div></CardContent></Card></TabsContent>
 
           <TabsContent value="documents" className="mt-5"><Card className="border-slate-200"><CardContent className="divide-y divide-slate-100 p-6">
-            {tender.documents.map((document) => <div key={document.name} className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0"><div className="flex min-w-0 items-center gap-3"><div className="rounded-lg bg-orange-50 p-2.5"><FileText className="h-5 w-5 text-orange-600" /></div><div className="min-w-0"><p className="truncate font-medium text-slate-900">{document.name}</p><p className="text-xs text-slate-500">{document.type.toUpperCase()} • {document.size}</p></div></div><Button variant="outline" size="sm" onClick={() => downloadDocument(document.name)}><Download className="mr-2 h-4 w-4" />Татах</Button></div>)}
+            {tender.documents.map((document) => <div key={document.name} className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0"><div className="flex min-w-0 items-center gap-3"><div className="rounded-lg bg-orange-50 p-2.5"><FileText className="h-5 w-5 text-orange-600" /></div><div className="min-w-0"><p className="truncate font-medium text-slate-900">{document.name}</p><p className="text-xs text-slate-500">{document.type.toUpperCase()} • {document.size}</p></div></div><Button variant="outline" size="sm" onClick={() => void downloadDocument(document)}><Download className="mr-2 h-4 w-4" />Татах</Button></div>)}
           </CardContent></Card></TabsContent>
 
           <TabsContent value="clarification" className="mt-5 grid gap-5 lg:grid-cols-[1fr_380px]">

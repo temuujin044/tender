@@ -22,7 +22,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
-import { AUTH_STATE_EVENT, clearStoredAuthState, getStoredUser, type DummyAuthUser } from "@/lib/auth";
+import { AUTH_STATE_EVENT, clearStoredAuthState, getStoredUser, type AuthUser } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 const primaryItems = [
@@ -54,7 +54,6 @@ const secondaryItems = [
     label: "Мэдэгдэл",
     href: "/dashboard/notifications",
     icon: Bell,
-    badge: 3,
   },
   {
     label: "Профайл",
@@ -98,7 +97,7 @@ export function DashboardSidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [user, setUser] = useState<DummyAuthUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [openSection, setOpenSection] = useState(
     isTenderRoute(pathname) ? "tenders" : "",
   );
@@ -154,7 +153,7 @@ export function DashboardSidebar() {
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex flex-col border-r border-slate-200 bg-white shadow-[4px_0_24px_rgba(0,0,0,0.02)] transition-all duration-300 ease-in-out lg:relative lg:z-0",
+          "fixed inset-y-0 left-0 z-50 flex h-screen shrink-0 flex-col border-r border-slate-200 bg-white shadow-[4px_0_24px_rgba(0,0,0,0.02)] transition-all duration-300 ease-in-out lg:relative lg:z-0",
           collapsed ? "w-20" : "w-64",
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
         )}
@@ -343,20 +342,7 @@ export function DashboardSidebar() {
                     )}
                   />
 
-                  {!collapsed && (
-                    <>
-                      <span className="flex-1 truncate">{item.label}</span>
-                      {item.badge && (
-                        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-orange-500 px-1.5 text-[11px] font-bold text-white shadow-sm">
-                          {item.badge}
-                        </span>
-                      )}
-                    </>
-                  )}
-
-                  {collapsed && item.badge && (
-                    <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-orange-500 ring-2 ring-white" />
-                  )}
+                  {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
                 </Link>
               );
             })}

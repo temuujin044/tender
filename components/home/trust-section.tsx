@@ -1,23 +1,9 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Headphones, FileQuestion, Mail, ArrowRight } from "lucide-react";
+import { Mail, ArrowRight } from "lucide-react";
 
 const supportOptions = [
-  {
-    title: "Тусламжийн төв",
-    description: "Дэлгэрэнгүй баримт бичиг болон зааварчилгааг үзнэ үү",
-    icon: FileQuestion,
-    href: "/support",
-    action: "Тусламж авах",
-  },
-  {
-    title: "Холбоо барих",
-    description: "Худалдан авалтын дэмжлэгийн багтай холбогдоно уу",
-    icon: Headphones,
-    href: "/support",
-    action: "Мэдээлэл харах",
-  },
   {
     title: "И-мэйл илгээх",
     description: "И-мэйл илгээвэл бид 24 цагийн дотор хариу өгнө",
@@ -41,7 +27,7 @@ export function TrustSection() {
           </p>
         </div>
 
-        <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mx-auto mt-12 max-w-md">
           {supportOptions.map((option) => (
             <Card
               key={option.title}
@@ -93,7 +79,7 @@ export function TrustSection() {
                   Одоо бүртгүүлэх
                 </Button>
               </Link>
-              <Link href="/how-it-works">
+              <Link href="/#how-it-works">
                 <Button
                   size="lg"
                   variant="outline"

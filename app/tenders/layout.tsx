@@ -15,9 +15,9 @@ export default async function TendersLayout({
 
   if (isAuthenticated) {
     return (
-      <div className="flex min-h-screen bg-[#f8f6f0]">
+      <div className="flex h-screen overflow-hidden bg-[#f8f6f0]">
         <DashboardSidebar />
-        <main className="flex-1 overflow-auto">{children}</main>
+        <main className="h-screen min-w-0 flex-1 overflow-y-auto overflow-x-hidden">{children}</main>
       </div>
     );
   }

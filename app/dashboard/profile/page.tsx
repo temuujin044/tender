@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,34 +42,38 @@ import {
   validateAllCompanyFields,
 } from "@/lib/company-form";
 import { cn } from "@/lib/utils";
+import { fetchVendorProfile, updateVendorProfile, type VendorProfileRecord } from "@/lib/api";
+import { getStoredUser } from "@/lib/auth";
 
 export default function ProfilePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [profile, setProfile] = useState<CompanyFormData>({
-    ...emptyCompanyFormData,
-    entityType: "company",
-    country: "mn",
-    companyName: "Тест компани ХХК",
-    registrationNumber: "12345678",
-    isVatPayer: true,
-    companyStatus: "active",
-    businessDirection: "Мэдээллийн технологи, тоног төхөөрөмжийн нийлүүлэлт",
-    foundedDate: "2019-05-10",
-    companyAddress: "Энхтайваны өргөн чөлөө 123, Улаанбаатар, Монгол Улс",
-    companyPhone: "+976 7700 0000",
-    companyEmail: "info@company.mn",
-    parentCompany: "Тест групп",
-    shareholders: "Б.Бат, Г.Ган",
-    website: "https://company.mn",
-    contactName: "Тест хэрэглэгч",
-    contactPhone: "+976 9999 0000",
-    contactEmail: "contact@company.mn",
-    username: "testcompany",
-    password: "Company123",
-    confirmPassword: "Company123",
-  });
+  const [profile, setProfile] = useState<CompanyFormData>(emptyCompanyFormData);
+  const [vendorRecord, setVendorRecord] = useState<VendorProfileRecord | null>(null);
+  const [saveError, setSaveError] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const user = getStoredUser();
+    if (!user?.vendorId) return;
+    void fetchVendorProfile(user.vendorId).then((record) => {
+      setVendorRecord(record);
+      const vendorType = Number(record.vendortypeid ?? 1);
+      const countryName = String(record.countryname ?? "").toLowerCase();
+      setProfile({
+        entityType: vendorType === 2 ? "individual" : vendorType === 3 ? "foreign" : "company",
+        country: countryName.includes("mongol") ? "mn" : "other",
+        companyName: String(record.vendorname ?? ""), registrationNumber: String(record.registernumber ?? ""),
+        isVatPayer: Number(record.isvatpayer ?? 0) === 1,
+        companyStatus: Number(record.vendorstatusid ?? 1) === 2 ? "suspended" : Number(record.vendorstatusid ?? 1) === 3 ? "inactive" : "active",
+        businessDirection: String(record.activity ?? ""), foundedDate: String(record.establisheddate ?? "").replaceAll(".", "-"),
+        companyAddress: String(record.address ?? ""), companyPhone: String(record.vendorphone ?? ""), companyEmail: String(record.vendoremail ?? ""),
+        parentCompany: String(record.headcompany ?? ""), shareholders: String(record.shareholder ?? ""), website: String(record.website ?? ""),
+        contactName: String(record.empname ?? ""), contactPhone: String(record.empphone ?? ""), contactEmail: String(record.empemail ?? ""),
+        username: user.username, password: "unchanged", confirmPassword: "unchanged",
+      });
+    }).catch((requestError) => setSaveError(requestError instanceof Error ? requestError.message : "Профайл ачаалж чадсангүй."));
+  }, []);
 
   const updateField = <K extends keyof CompanyFormData>(
     field: K,
@@ -132,10 +136,23 @@ export default function ProfilePage() {
 
     setIsLoading(true);
     setSaved(false);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setIsLoading(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
+    setSaveError("");
+    const user = getStoredUser();
+    if (!user?.vendorId || !vendorRecord) {
+      setSaveError("Нийлүүлэгчийн session олдсонгүй.");
+      setIsLoading(false);
+      return;
+    }
+    try {
+      await updateVendorProfile(profile, user.vendorId, vendorRecord);
+      setVendorRecord(await fetchVendorProfile(user.vendorId));
+      setIsLoading(false);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (requestError) {
+      setSaveError(requestError instanceof Error ? requestError.message : "Профайл хадгалагдсангүй.");
+      setIsLoading(false);
+    }
   };
 
   const entityTypeLabel =
@@ -153,6 +170,7 @@ export default function ProfilePage() {
 
   return (
     <div className="p-6 lg:p-8">
+      <div className="mx-auto max-w-7xl">
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">
@@ -174,6 +192,7 @@ export default function ProfilePage() {
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_340px]">
         <form className="space-y-6" onSubmit={handleSave}>
+          {saveError && <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{saveError}</div>}
           <Card className="border-border/60">
             <CardHeader>
               <CardTitle className="text-lg">Компанийн мэдээлэл</CardTitle>
@@ -542,9 +561,9 @@ export default function ProfilePage() {
 
           <Card className="border-border/60">
             <CardHeader>
-              <CardTitle className="text-lg">Нууц үг</CardTitle>
+              <CardTitle className="text-lg">Нэвтрэх бүртгэл</CardTitle>
               <CardDescription>
-                Системд нэвтрэх нэр болон нууц үгийн мэдээлэл.
+                Системд нэвтэрсэн хэрэглэгчийн нэр.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -555,43 +574,10 @@ export default function ProfilePage() {
                 <Input
                   id="username"
                   value={profile.username}
-                  onChange={(e) => updateField("username", e.target.value)}
-                  className={getFieldClass("username")}
+                  readOnly
+                  className={cn(getFieldClass("username"), "bg-slate-50")}
                 />
                 {renderError("username")}
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="password">
-                    Нууц үг оруулах<span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={profile.password}
-                    onChange={(e) => updateField("password", e.target.value)}
-                    className={getFieldClass("password")}
-                  />
-                  {renderError("password")}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="confirmPassword">
-                    Нууц үг давтан оруулах
-                    <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="confirmPassword"
-                    type="password"
-                    value={profile.confirmPassword}
-                    onChange={(e) =>
-                      updateField("confirmPassword", e.target.value)
-                    }
-                    className={getFieldClass("confirmPassword")}
-                  />
-                  {renderError("confirmPassword")}
-                </div>
               </div>
             </CardContent>
           </Card>
@@ -697,6 +683,7 @@ export default function ProfilePage() {
             </CardContent>
           </Card>
         </div>
+      </div>
       </div>
     </div>
   );

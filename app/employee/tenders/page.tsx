@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { EMPLOYEE_STORE_EVENT, formatEmployeeMoney, getEmployeeTenders, getTenderCompletion, type EmployeeTender, type EmployeeTenderStatus } from "@/lib/dummy-employee-store"
+import { formatEmployeeMoney, getTenderCompletion, type EmployeeTender, type EmployeeTenderStatus } from "@/lib/employee-tender"
+import { fetchEmployeeTenders } from "@/lib/api"
 
 const status: Record<EmployeeTenderStatus, { label: string; className: string }> = {
   draft: { label: "Ноорог", className: "bg-slate-100 text-slate-700" }, ready: { label: "Бэлэн", className: "bg-blue-100 text-blue-700" },
@@ -19,7 +20,7 @@ export default function EmployeeTenderListPage() {
   const [tenders, setTenders] = useState<EmployeeTender[]>([])
   const [query, setQuery] = useState("")
   const [filter, setFilter] = useState("all")
-  useEffect(() => { const sync = () => setTenders(getEmployeeTenders()); sync(); window.addEventListener(EMPLOYEE_STORE_EVENT, sync); return () => window.removeEventListener(EMPLOYEE_STORE_EVENT, sync) }, [])
+  useEffect(() => { void fetchEmployeeTenders().then(setTenders) }, [])
   const filtered = useMemo(() => tenders.filter((item) => `${item.name} ${item.tenderCode} ${item.invitationCode}`.toLowerCase().includes(query.toLowerCase()) && (filter === "all" || item.status === filter)), [filter, query, tenders])
 
   return <div className="p-6 lg:p-8"><div className="mx-auto max-w-7xl">

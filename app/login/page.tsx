@@ -24,7 +24,8 @@ import {
   AlertCircle,
   CheckCircle2,
 } from "lucide-react";
-import { authenticateDummyUser, setStoredAuthState } from "@/lib/auth";
+import { setStoredAuthState } from "@/lib/auth";
+import { loginVendor } from "@/lib/api";
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
@@ -54,20 +55,43 @@ export default function LoginPage() {
     setError("");
     setIsLoading(true);
 
-    // Simulate login - in production, this would call an API
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    try {
+      const session = await loginVendor(username.trim(), password);
+      if (!session.success) throw new Error(session.message || "Нэвтрэх мэдээлэл буруу байна.");
 
-    const user = authenticateDummyUser(username, password);
-    if (user) {
+      if (session.role === "employee" && session.empid) {
+        const employeeUser = {
+          role: "employee" as const,
+          employeeId: session.empid,
+          userId: session.userid,
+          token: session.token,
+          username: username.trim(),
+          vendorName: "Монголын Алт (МАК) ХХК",
+          email: username.trim(),
+          contactName: session.username || username.trim(),
+        };
+        setStoredAuthState(true, employeeUser);
+        const target = redirectPath.startsWith("/employee") ? redirectPath : "/employee";
+        window.location.assign(target);
+        return;
+      }
+
+      if (!session.vendorid) throw new Error(session.message || "Нэвтрэх мэдээлэл буруу байна.");
+      const user = {
+        role: "vendor" as const,
+        vendorId: session.vendorid,
+        userId: session.userid,
+        token: session.token,
+        username: username.trim(),
+        vendorName: session.username || username.trim(),
+        email: "",
+        contactName: session.username || username.trim(),
+      };
       setStoredAuthState(true, user);
-      const target = user.role === "employee"
-        ? (redirectPath.startsWith("/employee") ? redirectPath : "/employee")
-        : (redirectPath.startsWith("/employee") ? "/dashboard" : redirectPath);
+      const target = redirectPath.startsWith("/employee") ? "/dashboard" : redirectPath;
       window.location.assign(target);
-    } else {
-      setError(
-        "Хэрэглэгчийн нэр эсвэл нууц үг буруу байна.",
-      );
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Хэрэглэгчийн нэр эсвэл нууц үг буруу байна.");
       setIsLoading(false);
     }
   };
@@ -75,11 +99,6 @@ export default function LoginPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     void login(formData.username, formData.password);
-  };
-
-  const loginAsEmployee = () => {
-    setFormData((current) => ({ ...current, username: "employee", password: "employee123" }));
-    void login("employee", "employee123");
   };
 
   return (
@@ -252,16 +271,6 @@ export default function LoginPage() {
                 >
                   Нийлүүлэгчээр бүртгүүлэх
                 </Link>
-              </div>
-              <div className="mt-6 grid gap-2 rounded-xl bg-slate-50 p-3 text-xs text-slate-500 sm:grid-cols-2">
-                <button type="button" className="rounded-lg border border-slate-200 bg-white p-2 text-left hover:border-orange-300" onClick={() => setFormData((current) => ({ ...current, username: "test", password: "test123" }))}>
-                  <span className="block font-semibold text-slate-700">Нийлүүлэгч</span>
-                  test / test123
-                </button>
-                <button type="button" disabled={isLoading} className="rounded-lg border border-slate-200 bg-white p-2 text-left hover:border-orange-300 disabled:opacity-60" onClick={loginAsEmployee}>
-                  <span className="block font-semibold text-slate-700">Тендерийн ажилтан</span>
-                  Шууд нэвтрэх
-                </button>
               </div>
             </CardContent>
           </Card>

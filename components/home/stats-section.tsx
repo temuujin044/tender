@@ -1,46 +1,32 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import { AlertCircle, CheckCircle, FileText } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuthState } from "@/hooks/use-auth-state";
-
-const stats = [
-  {
-    label: "Нээлттэй тендер",
-    value: "24",
-    description: "Санал хүлээн авч байна",
-    icon: FileText,
-    href: "/tenders/open",
-    color: "text-primary",
-    bgColor: "bg-primary/10",
-    requiresAuth: false,
-  },
-  {
-    label: "Удахгүй хаагдах",
-    value: "5",
-    description: "7 хоногийн дотор",
-    icon: AlertCircle,
-    href: "/tenders/open?filter=closing-soon",
-    color: "text-amber-600",
-    bgColor: "bg-amber-100",
-    requiresAuth: false,
-  },
-  {
-    label: "Оролцсон / Үр дүн",
-    value: "2",
-    description: "Миний илгээсэн саналууд",
-    icon: CheckCircle,
-    href: "/tenders/closed",
-    color: "text-emerald-600",
-    bgColor: "bg-emerald-100",
-    requiresAuth: true,
-  },
-];
+import { useTenderCatalog } from "@/hooks/use-tenders";
+import { fetchVendorTenders } from "@/lib/api";
+import { getStoredUser } from "@/lib/auth";
 
 export function StatsSection() {
   const { isAuthenticated, isReady } = useAuthState();
+  const { tenders } = useTenderCatalog("all");
+  const [participationCount, setParticipationCount] = useState(0);
+  const openCount = tenders.filter((tender) => tender.status === "open" || tender.status === "closing-soon").length;
+  const closingCount = tenders.filter((tender) => tender.status === "closing-soon").length;
+
+  useEffect(() => {
+    const user = getStoredUser();
+    if (user?.vendorId) void fetchVendorTenders(user.vendorId).then((items) => setParticipationCount(items.length));
+  }, [isAuthenticated]);
+
+  const stats = [
+    { label: "Нээлттэй тендер", value: String(openCount), description: "Санал хүлээн авч байна", icon: FileText, href: "/#open-tenders", color: "text-primary", bgColor: "bg-primary/10", requiresAuth: false },
+    { label: "Удахгүй хаагдах", value: String(closingCount), description: "3 хоногийн дотор", icon: AlertCircle, href: "/#open-tenders", color: "text-amber-600", bgColor: "bg-amber-100", requiresAuth: false },
+    { label: "Оролцсон / Үр дүн", value: String(participationCount), description: "Backend-д бүртгэгдсэн", icon: CheckCircle, href: "/tenders/closed", color: "text-emerald-600", bgColor: "bg-emerald-100", requiresAuth: true },
+  ];
   const visibleStats = stats.filter(
     (stat) => !stat.requiresAuth || (isReady && isAuthenticated),
   );

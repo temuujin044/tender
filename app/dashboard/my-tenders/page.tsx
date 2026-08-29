@@ -9,8 +9,23 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { DUMMY_STORE_EVENT, formatMoney, getDummySubmissions, type DummySubmission, type SubmissionStatus } from "@/lib/dummy-tender-store"
-import { getTenderById } from "@/lib/tender-data"
+import { fetchQuotes, fetchVendorTenders } from "@/lib/api"
+import { getStoredUser } from "@/lib/auth"
+
+type SubmissionStatus = "submitted" | "under-review" | "awarded" | "not-awarded"
+type VendorSubmission = {
+  id: number
+  tenderId: string
+  tenderCode: string
+  title: string
+  batchName: string
+  status: SubmissionStatus
+  quoteAmount: number
+  deliveryDays: number
+  submittedAt: string
+}
+
+function formatMoney(value: number) { return `${new Intl.NumberFormat("mn-MN", { maximumFractionDigits: 0 }).format(value)} ₮` }
 
 const statusConfig: Record<SubmissionStatus, { label: string; className: string; icon: typeof FileText }> = {
   submitted: { label: "Илгээсэн", className: "bg-blue-100 text-blue-700", icon: FileText },
@@ -20,21 +35,32 @@ const statusConfig: Record<SubmissionStatus, { label: string; className: string;
 }
 
 export default function MyTendersPage() {
-  const [submissions, setSubmissions] = useState<DummySubmission[]>([])
+  const [submissions, setSubmissions] = useState<VendorSubmission[]>([])
   const [search, setSearch] = useState("")
   const [status, setStatus] = useState("all")
   const [tab, setTab] = useState("all")
 
   useEffect(() => {
-    const sync = () => setSubmissions(getDummySubmissions())
-    sync()
-    window.addEventListener(DUMMY_STORE_EVENT, sync)
-    return () => window.removeEventListener(DUMMY_STORE_EVENT, sync)
+    const user = getStoredUser()
+    if (!user?.vendorId) return
+    void fetchVendorTenders(user.vendorId).then(async (tenders) => {
+      const groups = await Promise.all(tenders.map(async (tender) => (await fetchQuotes(tender.invitationId, user.vendorId!)).map((quote) => ({
+        id: quote.qouteid,
+        tenderId: tender.id,
+        tenderCode: tender.tenderCode ?? tender.id,
+        title: tender.title,
+        batchName: quote.batchname || "Тендерийн нийт санал",
+        status: tender.status === "awarded" ? "awarded" as const : tender.status === "closed" ? "under-review" as const : "submitted" as const,
+        quoteAmount: Number(quote.qouteamount ?? 0),
+        deliveryDays: Number(quote.deliveryday ?? 0),
+        submittedAt: quote.qoutedate ?? "",
+      }))))
+      setSubmissions(groups.flat())
+    })
   }, [])
 
   const filtered = useMemo(() => submissions.filter((submission) => {
-    const tender = getTenderById(submission.tenderId)
-    const matchesSearch = `${submission.tenderId} ${tender?.title ?? ""} ${submission.batchName}`.toLowerCase().includes(search.toLowerCase())
+    const matchesSearch = `${submission.tenderCode} ${submission.title} ${submission.batchName}`.toLowerCase().includes(search.toLowerCase())
     const matchesTab = tab === "all" || (tab === "active" ? ["submitted", "under-review"].includes(submission.status) : ["awarded", "not-awarded"].includes(submission.status))
     return matchesSearch && matchesTab && (status === "all" || submission.status === status)
   }), [search, status, submissions, tab])
@@ -46,6 +72,7 @@ export default function MyTendersPage() {
 
   return (
     <div className="bg-slate-50/70 p-6 lg:p-8">
+      <div className="mx-auto max-w-7xl">
       <div className="mb-8"><h1 className="text-2xl font-bold text-slate-900">Миний тендерүүд</h1><p className="mt-1 text-slate-500">Оролцсон урилга болон багц тус бүрийн үнийн саналын явцыг хянана.</p></div>
 
       <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -67,16 +94,16 @@ export default function MyTendersPage() {
         </CardHeader>
         <CardContent className="p-0">
           {filtered.length ? <div className="divide-y divide-slate-100">{filtered.map((submission) => {
-            const tender = getTenderById(submission.tenderId)
             const config = statusConfig[submission.status]
             const Icon = config.icon
             return <div key={submission.id} className="flex flex-col gap-5 p-6 transition-colors hover:bg-slate-50 lg:flex-row lg:items-center">
-              <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Badge className={config.className}><Icon className="mr-1 h-3 w-3" />{config.label}</Badge><span className="text-sm font-medium text-slate-500">{submission.tenderId}</span><span className="text-xs text-slate-400">{submission.id}</span></div><h2 className="mt-2 font-semibold text-slate-900">{tender?.title ?? "Тендер"}</h2><div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-500"><span className="flex items-center gap-1.5"><Building2 className="h-3.5 w-3.5" />{submission.batchName}</span><span className="flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5" />Илгээсэн: {new Date(submission.submittedAt).toLocaleDateString("mn-MN")}</span></div></div>
+              <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Badge className={config.className}><Icon className="mr-1 h-3 w-3" />{config.label}</Badge><span className="text-sm font-medium text-slate-500">{submission.tenderCode}</span><span className="text-xs text-slate-400">Q-{submission.id}</span></div><h2 className="mt-2 font-semibold text-slate-900">{submission.title}</h2><div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-500"><span className="flex items-center gap-1.5"><Building2 className="h-3.5 w-3.5" />{submission.batchName}</span><span className="flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5" />Саналын огноо: {submission.submittedAt || "Тодорхойгүй"}</span></div></div>
               <div className="flex items-center justify-between gap-5 lg:justify-end"><div className="lg:text-right"><p className="text-xs text-slate-500">Үнийн санал</p><p className="mt-1 text-lg font-bold text-slate-900">{formatMoney(submission.quoteAmount)}</p><p className="text-xs text-slate-500">Хүргэлт: {submission.deliveryDays} хоног</p></div><Link href={`/tenders/${submission.tenderId}`}><Button variant="outline" size="sm">Дэлгэрэнгүй<ExternalLink className="ml-2 h-3.5 w-3.5" /></Button></Link></div>
             </div>
           })}</div> : <div className="p-16 text-center"><FileText className="mx-auto h-10 w-10 text-slate-300" /><p className="mt-3 font-medium text-slate-700">Тохирох санал олдсонгүй</p><p className="mt-1 text-sm text-slate-500">Шүүлтүүрээ өөрчлөх эсвэл шинэ тендерт оролцоно уу.</p></div>}
         </CardContent>
       </Card>
+      </div>
     </div>
   )
 }

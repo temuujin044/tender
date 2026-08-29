@@ -19,14 +19,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  DUMMY_STORE_EVENT,
-  formatMoney,
-  getDummySubmissions,
-  type DummySubmission,
-  type SubmissionStatus,
-} from "@/lib/dummy-tender-store"
-import { getTenderById } from "@/lib/tender-data"
+import { fetchQuotes, fetchVendorTenders } from "@/lib/api"
+import { getStoredUser } from "@/lib/auth"
+
+type SubmissionStatus = "submitted" | "under-review" | "awarded" | "not-awarded"
+type VendorSubmission = { id: number; tenderId: string; tenderCode: string; title: string; batchName: string; status: SubmissionStatus; quoteAmount: number; deliveryDays: number; submittedAt: string }
+function formatMoney(value: number) { return `${new Intl.NumberFormat("mn-MN", { maximumFractionDigits: 0 }).format(value)} ₮` }
 
 const resultConfig: Record<SubmissionStatus, {
   label: string
@@ -61,20 +59,26 @@ const resultConfig: Record<SubmissionStatus, {
 }
 
 export function ParticipationResults() {
-  const [submissions, setSubmissions] = useState<DummySubmission[]>([])
+  const [submissions, setSubmissions] = useState<VendorSubmission[]>([])
   const [query, setQuery] = useState("")
   const [filter, setFilter] = useState("all")
 
   useEffect(() => {
-    const sync = () => setSubmissions(getDummySubmissions())
-    sync()
-    window.addEventListener(DUMMY_STORE_EVENT, sync)
-    return () => window.removeEventListener(DUMMY_STORE_EVENT, sync)
+    const user = getStoredUser()
+    if (!user?.vendorId) return
+    void fetchVendorTenders(user.vendorId).then(async (tenders) => {
+      const groups = await Promise.all(tenders.map(async (tender) => (await fetchQuotes(tender.invitationId, user.vendorId!)).map((quote) => ({
+        id: quote.qouteid, tenderId: tender.id, tenderCode: tender.tenderCode ?? tender.id, title: tender.title,
+        batchName: quote.batchname || "Тендерийн нийт санал",
+        status: tender.status === "awarded" ? "awarded" as const : tender.status === "closed" ? "under-review" as const : "submitted" as const,
+        quoteAmount: Number(quote.qouteamount ?? 0), deliveryDays: Number(quote.deliveryday ?? 0), submittedAt: quote.qoutedate ?? "",
+      }))))
+      setSubmissions(groups.flat())
+    })
   }, [])
 
   const filtered = useMemo(() => submissions.filter((submission) => {
-    const tender = getTenderById(submission.tenderId)
-    const matchesQuery = `${submission.tenderId} ${submission.id} ${submission.batchName} ${tender?.title ?? ""}`
+    const matchesQuery = `${submission.tenderCode} ${submission.id} ${submission.batchName} ${submission.title}`
       .toLowerCase()
       .includes(query.trim().toLowerCase())
     const matchesFilter = filter === "all"
@@ -90,12 +94,11 @@ export function ParticipationResults() {
   return (
     <div className="space-y-7">
       <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <div className="relative overflow-hidden bg-slate-950 px-6 py-8 text-white sm:px-8">
-          <div className="absolute -right-16 -top-20 h-56 w-56 rounded-full bg-orange-500/20 blur-3xl" />
-          <div className="relative">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-orange-400">Нийлүүлэгчийн санал</p>
-            <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">Оролцсон тендер / Үр дүн</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+        <div className="border-b border-orange-100 bg-orange-50/70 px-6 py-8 sm:px-8">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-normal text-orange-600">Нийлүүлэгчийн санал</p>
+            <h1 className="mt-2 text-2xl font-bold tracking-normal text-slate-900 sm:text-3xl">Оролцсон тендер / Үр дүн</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
               Илгээсэн үнийн саналын үнэлгээний явц болон эцсийн үр дүнг нэг дороос хянана.
             </p>
           </div>
@@ -134,7 +137,6 @@ export function ParticipationResults() {
           {filtered.length ? (
             <div className="divide-y divide-slate-100">
               {filtered.map((submission) => {
-                const tender = getTenderById(submission.tenderId)
                 const config = resultConfig[submission.status]
                 const ResultIcon = config.icon
 
@@ -147,16 +149,16 @@ export function ParticipationResults() {
                             <ResultIcon className="mr-1.5 h-3.5 w-3.5" />
                             {config.label}
                           </Badge>
-                          <span className="text-xs font-medium text-slate-500">{submission.tenderId}</span>
-                          <span className="text-xs text-slate-400">{submission.id}</span>
+                          <span className="text-xs font-medium text-slate-500">{submission.tenderCode}</span>
+                          <span className="text-xs text-slate-400">Q-{submission.id}</span>
                         </div>
                         <h2 className="mt-3 text-base font-semibold text-slate-900 sm:text-lg">
-                          {tender?.title ?? "Тендер"}
+                          {submission.title}
                         </h2>
                         <p className="mt-1 text-sm text-slate-500">{config.description}</p>
                         <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-500">
                           <span className="flex items-center gap-1.5"><Building2 className="h-4 w-4" />{submission.batchName}</span>
-                          <span className="flex items-center gap-1.5"><CalendarDays className="h-4 w-4" />{new Date(submission.submittedAt).toLocaleDateString("mn-MN")}</span>
+                          <span className="flex items-center gap-1.5"><CalendarDays className="h-4 w-4" />{submission.submittedAt || "Тодорхойгүй"}</span>
                         </div>
                       </div>
 
