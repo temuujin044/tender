@@ -1,14 +1,14 @@
-export const AUTH_STORAGE_KEY = "mak_tender_authenticated";
-export const AUTH_COOKIE_KEY = "mak_tender_authenticated";
-export const AUTH_ROLE_COOKIE_KEY = "mak_tender_role";
-export const AUTH_STATE_EVENT = "mak-tender-auth-change";
-export const AUTH_USER_KEY = "mak_tender_user";
-const LEGACY_AUTH_USER_KEY = "mak_tender_dummy_user";
-const LEGACY_USERS_KEY = "mak_tender_dummy_users";
+export const AUTH_STORAGE_KEY = 'mak_tender_authenticated';
+export const AUTH_COOKIE_KEY = 'mak_tender_authenticated';
+export const AUTH_ROLE_COOKIE_KEY = 'mak_tender_role';
+export const AUTH_STATE_EVENT = 'mak-tender-auth-change';
+export const AUTH_USER_KEY = 'mak_tender_user';
+const LEGACY_AUTH_USER_KEY = 'mak_tender_dummy_user';
+const LEGACY_USERS_KEY = 'mak_tender_dummy_users';
 const AUTH_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
 
 export type AuthUser = {
-  role: "vendor" | "employee";
+  role: 'vendor' | 'employee';
   vendorId?: number;
   employeeId?: number;
   userId?: number;
@@ -20,15 +20,15 @@ export type AuthUser = {
 };
 
 export function getStoredAuthState() {
-  if (typeof window === "undefined") {
+  if (typeof window === 'undefined') {
     return false;
   }
 
-  return window.localStorage.getItem(AUTH_STORAGE_KEY) === "true";
+  return window.localStorage.getItem(AUTH_STORAGE_KEY) === 'true';
 }
 
 export function setStoredAuthState(isAuthenticated: boolean, user?: AuthUser) {
-  if (typeof window === "undefined") {
+  if (typeof window === 'undefined') {
     return;
   }
 
@@ -36,9 +36,10 @@ export function setStoredAuthState(isAuthenticated: boolean, user?: AuthUser) {
   window.localStorage.removeItem(LEGACY_USERS_KEY);
 
   if (isAuthenticated) {
-    window.localStorage.setItem(AUTH_STORAGE_KEY, "true");
+    window.localStorage.setItem(AUTH_STORAGE_KEY, 'true');
     if (user) window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
-    if (user) document.cookie = `${AUTH_ROLE_COOKIE_KEY}=${user.role}; path=/; max-age=${AUTH_COOKIE_MAX_AGE}; SameSite=Lax`;
+    if (user)
+      document.cookie = `${AUTH_ROLE_COOKIE_KEY}=${user.role}; path=/; max-age=${AUTH_COOKIE_MAX_AGE}; SameSite=Lax`;
     document.cookie = `${AUTH_COOKIE_KEY}=true; path=/; max-age=${AUTH_COOKIE_MAX_AGE}; SameSite=Lax`;
   } else {
     window.localStorage.removeItem(AUTH_STORAGE_KEY);
@@ -59,17 +60,22 @@ export function getLoginRedirectPath(path: string) {
 }
 
 export function getStoredUser(): AuthUser | null {
-  if (typeof window === "undefined") return null;
+  if (typeof window === 'undefined') return null;
   try {
-    const stored = JSON.parse(window.localStorage.getItem(AUTH_USER_KEY) ?? "null") as AuthUser | null;
+    const stored = JSON.parse(
+      window.localStorage.getItem(AUTH_USER_KEY) ?? 'null'
+    ) as AuthUser | null;
     if (stored) return stored;
 
-    const legacy = JSON.parse(window.localStorage.getItem(LEGACY_AUTH_USER_KEY) ?? "null") as AuthUser | null;
+    const legacy = JSON.parse(
+      window.localStorage.getItem(LEGACY_AUTH_USER_KEY) ?? 'null'
+    ) as AuthUser | null;
     if (!legacy) return null;
-    const isRemovedLocalEmployee = legacy.role === "employee"
-      && legacy.employeeId === 2048
-      && legacy.username.toLowerCase() === "employee"
-      && !legacy.token;
+    const isRemovedLocalEmployee =
+      legacy.role === 'employee' &&
+      legacy.employeeId === 2048 &&
+      legacy.username.toLowerCase() === 'employee' &&
+      !legacy.token;
     if (isRemovedLocalEmployee) {
       setStoredAuthState(false);
       return null;

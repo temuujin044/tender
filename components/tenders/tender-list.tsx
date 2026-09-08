@@ -1,18 +1,18 @@
-"use client"
+'use client';
 
-import { useEffect, useState } from "react"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
+} from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import {
   Search,
   Filter,
@@ -23,55 +23,73 @@ import {
   List,
   ChevronLeft,
   ChevronRight,
-} from "lucide-react"
-import { type Tender, statusConfig } from "@/lib/tender-data"
+} from 'lucide-react';
+import { type Tender, statusConfig } from '@/lib/tender-data';
 
 interface TenderListProps {
-  tenders: Tender[]
-  title: string
-  description: string
-  defaultStatus?: string
+  tenders: Tender[];
+  title: string;
+  description: string;
+  defaultStatus?: string;
 }
 
-export function TenderList({ tenders, title, description, defaultStatus = "all" }: TenderListProps) {
-  const [visibleTenders, setVisibleTenders] = useState(tenders)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [categoryFilter, setCategoryFilter] = useState("Бүх ангилал")
-  const [statusFilter, setStatusFilter] = useState(defaultStatus)
-  const [sortBy, setSortBy] = useState("deadline")
-  const [viewMode, setViewMode] = useState<"grid" | "list">("list")
-  const [currentPage, setCurrentPage] = useState(1)
-  const itemsPerPage = 6
+export function TenderList({
+  tenders,
+  title,
+  description,
+  defaultStatus = 'all',
+}: TenderListProps) {
+  const [visibleTenders, setVisibleTenders] = useState(tenders);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('Бүх ангилал');
+  const [statusFilter, setStatusFilter] = useState(defaultStatus);
+  const [sortBy, setSortBy] = useState('deadline');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 6;
 
-  useEffect(() => { setVisibleTenders(tenders) }, [tenders])
-  const categoryOptions = ["Бүх ангилал", ...Array.from(new Set(visibleTenders.map((tender) => tender.category)))]
+  useEffect(() => {
+    setVisibleTenders(tenders);
+  }, [tenders]);
+  const categoryOptions = [
+    'Бүх ангилал',
+    ...Array.from(new Set(visibleTenders.map((tender) => tender.category))),
+  ];
 
   const filteredTenders = visibleTenders
     .filter((tender) => {
       const matchesSearch =
         tender.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        `${tender.tenderCode ?? tender.id} ${tender.invitationCode}`.toLowerCase().includes(searchQuery.toLowerCase())
+        `${tender.tenderCode ?? tender.id} ${tender.invitationCode}`
+          .toLowerCase()
+          .includes(searchQuery.toLowerCase());
       const matchesCategory =
-        categoryFilter === "Бүх ангилал" || tender.category === categoryFilter
-      const matchesStatus = statusFilter === "all" || tender.status === statusFilter
-      return matchesSearch && matchesCategory && matchesStatus
+        categoryFilter === 'Бүх ангилал' || tender.category === categoryFilter;
+      const matchesStatus = statusFilter === 'all' || tender.status === statusFilter;
+      return matchesSearch && matchesCategory && matchesStatus;
     })
     .sort((a, b) => {
-      if (sortBy === "deadline") {
-        return Date.parse(a.deadline.replaceAll(".", "-").replace(" ", "T")) - Date.parse(b.deadline.replaceAll(".", "-").replace(" ", "T"))
-      } else if (sortBy === "value") {
-        return parseInt(b.value.replace(/[^\d]/g, "")) - parseInt(a.value.replace(/[^\d]/g, ""))
-      } else if (sortBy === "published") {
-        return Date.parse(b.publishDate.replaceAll(".", "-")) - Date.parse(a.publishDate.replaceAll(".", "-"))
+      if (sortBy === 'deadline') {
+        return (
+          Date.parse(a.deadline.replaceAll('.', '-').replace(' ', 'T')) -
+          Date.parse(b.deadline.replaceAll('.', '-').replace(' ', 'T'))
+        );
+      } else if (sortBy === 'value') {
+        return parseInt(b.value.replace(/[^\d]/g, '')) - parseInt(a.value.replace(/[^\d]/g, ''));
+      } else if (sortBy === 'published') {
+        return (
+          Date.parse(b.publishDate.replaceAll('.', '-')) -
+          Date.parse(a.publishDate.replaceAll('.', '-'))
+        );
       }
-      return 0
-    })
+      return 0;
+    });
 
-  const totalPages = Math.ceil(filteredTenders.length / itemsPerPage)
+  const totalPages = Math.ceil(filteredTenders.length / itemsPerPage);
   const paginatedTenders = filteredTenders.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
-  )
+  );
 
   return (
     <div className="space-y-6">
@@ -93,16 +111,16 @@ export function TenderList({ tenders, title, description, defaultStatus = "all" 
                   className="h-10 pl-10"
                   value={searchQuery}
                   onChange={(e) => {
-                    setSearchQuery(e.target.value)
-                    setCurrentPage(1)
+                    setSearchQuery(e.target.value);
+                    setCurrentPage(1);
                   }}
                 />
               </div>
               <Select
                 value={categoryFilter}
                 onValueChange={(value) => {
-                  setCategoryFilter(value)
-                  setCurrentPage(1)
+                  setCategoryFilter(value);
+                  setCurrentPage(1);
                 }}
               >
                 <SelectTrigger className="h-10 w-full sm:w-48">
@@ -120,8 +138,8 @@ export function TenderList({ tenders, title, description, defaultStatus = "all" 
               <Select
                 value={statusFilter}
                 onValueChange={(value) => {
-                  setStatusFilter(value)
-                  setCurrentPage(1)
+                  setStatusFilter(value);
+                  setCurrentPage(1);
                 }}
               >
                 <SelectTrigger className="h-10 w-full sm:w-40">
@@ -157,18 +175,18 @@ export function TenderList({ tenders, title, description, defaultStatus = "all" 
                   {filteredTenders.length} үр дүн
                 </span>
                 <Button
-                  variant={viewMode === "list" ? "secondary" : "ghost"}
+                  variant={viewMode === 'list' ? 'secondary' : 'ghost'}
                   size="icon"
                   className="h-9 w-9"
-                  onClick={() => setViewMode("list")}
+                  onClick={() => setViewMode('list')}
                 >
                   <List className="h-4 w-4" />
                 </Button>
                 <Button
-                  variant={viewMode === "grid" ? "secondary" : "ghost"}
+                  variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
                   size="icon"
                   className="h-9 w-9"
-                  onClick={() => setViewMode("grid")}
+                  onClick={() => setViewMode('grid')}
                 >
                   <LayoutGrid className="h-4 w-4" />
                 </Button>
@@ -187,16 +205,16 @@ export function TenderList({ tenders, title, description, defaultStatus = "all" 
               variant="outline"
               className="mt-4"
               onClick={() => {
-                setSearchQuery("")
-                setCategoryFilter("Бүх ангилал")
-                setStatusFilter("all")
+                setSearchQuery('');
+                setCategoryFilter('Бүх ангилал');
+                setStatusFilter('all');
               }}
             >
               Шүүлтүүрийг цэвэрлэх
             </Button>
           </CardContent>
         </Card>
-      ) : viewMode === "list" ? (
+      ) : viewMode === 'list' ? (
         <div className="space-y-4">
           {paginatedTenders.map((tender) => (
             <Card
@@ -207,17 +225,14 @@ export function TenderList({ tenders, title, description, defaultStatus = "all" 
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge
-                        variant="secondary"
-                        className={statusConfig[tender.status].className}
-                      >
+                      <Badge variant="secondary" className={statusConfig[tender.status].className}>
                         {statusConfig[tender.status].label}
                       </Badge>
-                      <span className="text-sm text-muted-foreground">{tender.tenderCode ?? tender.id}</span>
+                      <span className="text-sm text-muted-foreground">
+                        {tender.tenderCode ?? tender.id}
+                      </span>
                     </div>
-                    <h3 className="mt-2 text-lg font-semibold text-foreground">
-                      {tender.title}
-                    </h3>
+                    <h3 className="mt-2 text-lg font-semibold text-foreground">{tender.title}</h3>
                     <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
                       {tender.description}
                     </p>
@@ -254,13 +269,12 @@ export function TenderList({ tenders, title, description, defaultStatus = "all" 
             >
               <CardContent className="flex flex-1 flex-col p-6">
                 <div className="flex items-center justify-between">
-                  <Badge
-                    variant="secondary"
-                    className={statusConfig[tender.status].className}
-                  >
+                  <Badge variant="secondary" className={statusConfig[tender.status].className}>
                     {statusConfig[tender.status].label}
                   </Badge>
-                  <span className="text-xs text-muted-foreground">{tender.tenderCode ?? tender.id}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {tender.tenderCode ?? tender.id}
+                  </span>
                 </div>
                 <h3 className="mt-3 line-clamp-2 text-base font-semibold text-foreground">
                   {tender.title}
@@ -298,8 +312,8 @@ export function TenderList({ tenders, title, description, defaultStatus = "all" 
       {totalPages > 1 && (
         <div className="flex items-center justify-between border-t border-border/60 pt-6">
           <p className="text-sm text-muted-foreground">
-            {(currentPage - 1) * itemsPerPage + 1}-с{" "}
-            {Math.min(currentPage * itemsPerPage, filteredTenders.length)} хүртэл{" "}
+            {(currentPage - 1) * itemsPerPage + 1}-с{' '}
+            {Math.min(currentPage * itemsPerPage, filteredTenders.length)} хүртэл{' '}
             {filteredTenders.length} үр дүнгээс
           </p>
           <div className="flex items-center gap-2">
@@ -316,12 +330,10 @@ export function TenderList({ tenders, title, description, defaultStatus = "all" 
               {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
                 <Button
                   key={page}
-                  variant={currentPage === page ? "default" : "ghost"}
+                  variant={currentPage === page ? 'default' : 'ghost'}
                   size="sm"
                   className={`h-8 w-8 p-0 ${
-                    currentPage === page
-                      ? "bg-primary text-primary-foreground"
-                      : ""
+                    currentPage === page ? 'bg-primary text-primary-foreground' : ''
                   }`}
                   onClick={() => setCurrentPage(page)}
                 >
@@ -342,5 +354,5 @@ export function TenderList({ tenders, title, description, defaultStatus = "all" 
         </div>
       )}
     </div>
-  )
+  );
 }

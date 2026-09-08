@@ -1,19 +1,13 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Brand } from "@/components/brand";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Brand } from '@/components/brand';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Eye,
   EyeOff,
@@ -23,75 +17,81 @@ import {
   Lock,
   AlertCircle,
   CheckCircle2,
-} from "lucide-react";
-import { setStoredAuthState } from "@/lib/auth";
-import { loginVendor } from "@/lib/api";
+} from 'lucide-react';
+import { setStoredAuthState } from '@/lib/auth';
+import { loginAccount } from '@/lib/api';
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [redirectPath, setRedirectPath] = useState("/dashboard");
+  const [redirectPath, setRedirectPath] = useState('/dashboard');
   const [formData, setFormData] = useState({
-    username: "",
-    password: "",
+    username: '',
+    password: '',
     remember: false,
   });
-  const [error, setError] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const requestedRedirect = params.get("redirect");
-    if (params.get("registered") === "true") {
-      setSuccessMessage("Бүртгэл амжилттай үүслээ. Шинэ хэрэглэгчийн нэр, нууц үгээрээ нэвтэрнэ үү.");
+    const requestedRedirect = params.get('redirect');
+    if (params.get('registered') === 'true') {
+      setSuccessMessage(
+        'Бүртгэл амжилттай үүслээ. Шинэ хэрэглэгчийн нэр, нууц үгээрээ нэвтэрнэ үү.'
+      );
     }
 
-    if (requestedRedirect && requestedRedirect.startsWith("/")) {
+    if (requestedRedirect && requestedRedirect.startsWith('/')) {
       setRedirectPath(requestedRedirect);
     }
   }, []);
 
   const login = async (username: string, password: string) => {
-    setError("");
+    setError('');
     setIsLoading(true);
 
     try {
-      const session = await loginVendor(username.trim(), password);
-      if (!session.success) throw new Error(session.message || "Нэвтрэх мэдээлэл буруу байна.");
+      const session = await loginAccount(username.trim(), password);
+      if (!session.success) throw new Error(session.message || 'Нэвтрэх мэдээлэл буруу байна.');
 
-      if (session.role === "employee" && session.empid) {
+      if (session.role === 'employee' && session.empid) {
         const employeeUser = {
-          role: "employee" as const,
+          role: 'employee' as const,
           employeeId: session.empid,
           userId: session.userid,
           token: session.token,
           username: username.trim(),
-          vendorName: "Монголын Алт (МАК) ХХК",
+          vendorName: 'Монголын Алт (МАК) ХХК',
           email: username.trim(),
           contactName: session.username || username.trim(),
         };
         setStoredAuthState(true, employeeUser);
-        const target = redirectPath.startsWith("/employee") ? redirectPath : "/employee";
+        const target = redirectPath.startsWith('/employee') ? redirectPath : '/employee';
         window.location.assign(target);
         return;
       }
 
-      if (!session.vendorid) throw new Error(session.message || "Нэвтрэх мэдээлэл буруу байна.");
+      if (!session.vendorid) throw new Error(session.message || 'Нэвтрэх мэдээлэл буруу байна.');
       const user = {
-        role: "vendor" as const,
+        role: 'vendor' as const,
         vendorId: session.vendorid,
         userId: session.userid,
         token: session.token,
         username: username.trim(),
         vendorName: session.username || username.trim(),
-        email: "",
+        email: '',
         contactName: session.username || username.trim(),
       };
       setStoredAuthState(true, user);
-      const target = redirectPath.startsWith("/employee") ? "/dashboard" : redirectPath;
+      const target = redirectPath.startsWith('/employee') ? '/dashboard' : redirectPath;
       window.location.assign(target);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Хэрэглэгчийн нэр эсвэл нууц үг буруу байна.");
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Хэрэглэгчийн нэр эсвэл нууц үг буруу байна.'
+      );
       setIsLoading(false);
     }
   };
@@ -121,14 +121,12 @@ export default function LoginPage() {
             МАК Тендер платформд тавтай морил
           </h1>
           <p className="text-lg text-slate-300">
-            Хяналтын самбартаа нэвтэрч, тендерүүдээ удирдан, саналуудаа
-            хянаарай.
+            Хяналтын самбартаа нэвтэрч, тендерүүдээ удирдан, саналуудаа хянаарай.
           </p>
         </div>
 
         <p className="text-sm text-slate-500 relative z-10">
-          &copy; {new Date().getFullYear()} МАК Тендер. Бүх эрх хуулиар
-          хамгаалагдсан.
+          &copy; {new Date().getFullYear()} МАК Тендер. Бүх эрх хуулиар хамгаалагдсан.
         </p>
       </div>
 
@@ -137,21 +135,14 @@ export default function LoginPage() {
         <div className="w-full max-w-md">
           {/* Mobile logo */}
           <div className="mb-8 flex justify-center lg:hidden">
-            <Brand
-              href="/"
-              size="md"
-              priority
-              textClassName="font-bold text-slate-900"
-            />
+            <Brand href="/" size="md" priority textClassName="font-bold text-slate-900" />
           </div>
 
           <Card className="border-slate-200 bg-white shadow-xl shadow-slate-200/50 rounded-2xl">
             <CardHeader className="space-y-2 pb-6 px-6 pt-8">
-              <CardTitle className="text-2xl font-bold text-slate-900">
-                Нэвтрэх
-              </CardTitle>
+              <CardTitle className="text-2xl font-bold text-slate-900">Нэвтрэх</CardTitle>
               <CardDescription className="text-slate-500">
-                Бүртгэлдээ нэвтрэхийн тулд мэдээллээ оруулна уу
+                Ажилтан ERP и-мэйл, нууц үгээрээ; нийлүүлэгч Tender бүртгэлээрээ нэвтэрнэ.
               </CardDescription>
             </CardHeader>
             <CardContent className="px-6 pb-8">
@@ -171,17 +162,15 @@ export default function LoginPage() {
 
                 <div className="space-y-2">
                   <Label htmlFor="username" className="text-slate-700">
-                    Хэрэглэгчийн нэр
+                    И-мэйл эсвэл хэрэглэгчийн нэр
                   </Label>
                   <div className="relative">
                     <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                     <Input
                       id="username"
-                      placeholder="Хэрэглэгчийн нэр"
+                      placeholder="И-мэйл эсвэл хэрэглэгчийн нэр"
                       value={formData.username}
-                      onChange={(e) =>
-                        setFormData({ ...formData, username: e.target.value })
-                      }
+                      onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                       className="h-11 pl-10 bg-slate-50 border-slate-200 transition-colors focus-visible:bg-white focus-visible:ring-orange-500"
                       required
                     />
@@ -204,12 +193,10 @@ export default function LoginPage() {
                     <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                     <Input
                       id="password"
-                      type={showPassword ? "text" : "password"}
+                      type={showPassword ? 'text' : 'password'}
                       placeholder="••••••••"
                       value={formData.password}
-                      onChange={(e) =>
-                        setFormData({ ...formData, password: e.target.value })
-                      }
+                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                       className="h-11 pl-10 pr-10 bg-slate-50 border-slate-200 transition-colors focus-visible:bg-white focus-visible:ring-orange-500"
                       required
                     />
@@ -218,11 +205,7 @@ export default function LoginPage() {
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
                     >
-                      {showPassword ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
                 </div>
@@ -264,7 +247,7 @@ export default function LoginPage() {
               </form>
 
               <div className="mt-8 text-center text-sm text-slate-500">
-                {"Бүртгэлгүй юу? "}
+                {'Бүртгэлгүй юу? '}
                 <Link
                   href="/register"
                   className="font-semibold text-orange-600 hover:text-orange-700 hover:underline transition-colors"
@@ -276,8 +259,7 @@ export default function LoginPage() {
           </Card>
 
           <p className="mt-6 text-center text-xs text-slate-500 lg:hidden">
-            &copy; {new Date().getFullYear()} МАК Тендер. Бүх эрх хуулиар
-            хамгаалагдсан.
+            &copy; {new Date().getFullYear()} МАК Тендер. Бүх эрх хуулиар хамгаалагдсан.
           </p>
         </div>
       </div>

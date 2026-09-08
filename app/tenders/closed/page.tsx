@@ -1,9 +1,9 @@
-import { TenderAccessGuard } from "@/components/auth/tender-access-guard";
-import { ParticipationResults } from "@/components/tenders/participation-results";
+import { TenderAccessGuard } from '@/components/auth/tender-access-guard';
+import { ParticipationResults } from '@/components/tenders/participation-results';
 
 export const metadata = {
-  title: "Оролцсон тендер ба үр дүн - МАК Тендер",
-  description: "Оролцсон тендерүүд болон саналын үнэлгээний үр дүнг хянах.",
+  title: 'Оролцсон тендер ба үр дүн - МАК Тендер',
+  description: 'Оролцсон тендерүүд болон саналын үнэлгээний үр дүнг хянах.',
 };
 
 export default function ClosedTendersPage() {

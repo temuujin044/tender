@@ -1,14 +1,14 @@
-"use client";
+'use client';
 
-import Link from "next/link";
-import { motion } from "motion/react";
-import { ArrowRight, CheckCircle2, FileText, ShieldCheck, Sparkles } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useTenderCatalog } from "@/hooks/use-tenders";
-import { Hero3DScene } from "./hero-3d-scene";
+import Link from 'next/link';
+import { motion } from 'motion/react';
+import { ArrowRight, CheckCircle2, FileText, ShieldCheck, Sparkles } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useTenderCatalog } from '@/hooks/use-tenders';
+import { Hero3DScene } from './hero-3d-scene';
 
 export function HeroSection() {
-  const { tenders, loading } = useTenderCatalog("open");
+  const { tenders, loading } = useTenderCatalog('open');
 
   return (
     <section className="relative flex min-h-[calc(100vh-4rem)] w-full min-w-0 items-center overflow-hidden bg-[#faf8f4] py-12 sm:py-16 lg:py-24">
@@ -47,8 +47,8 @@ export function HeroSection() {
             transition={{ duration: 0.9, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
             className="mx-auto mt-7 max-w-xl text-base font-normal leading-7 text-slate-600 sm:text-lg sm:leading-8 lg:mx-0"
           >
-            МАК ХХК-ийн цахим тендерийн платформд тавтай морил. Шинэ боломжийг
-            ил тод, хялбар үйл явцаар нээж, бизнесийн үнэ цэнээ нэмэгдүүлээрэй.
+            МАК ХХК-ийн цахим тендерийн платформд тавтай морил. Шинэ боломжийг ил тод, хялбар үйл
+            явцаар нээж, бизнесийн үнэ цэнээ нэмэгдүүлээрэй.
           </motion.p>
 
           <motion.div
@@ -83,8 +83,14 @@ export function HeroSection() {
             transition={{ duration: 0.8, delay: 0.45 }}
             className="mt-9 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 text-sm text-slate-600 lg:justify-start"
           >
-            <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-600" />Ил тод үйл явц</span>
-            <span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-orange-600" />Найдвартай орчин</span>
+            <span className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              Ил тод үйл явц
+            </span>
+            <span className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-orange-600" />
+              Найдвартай орчин
+            </span>
           </motion.div>
         </div>
 
@@ -96,14 +102,26 @@ export function HeroSection() {
         >
           <div className="absolute right-0 top-16 rounded-2xl border border-white/80 bg-white/85 p-4 shadow-[0_24px_55px_-24px_rgba(15,23,42,0.3)] backdrop-blur-xl">
             <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-100 text-orange-600"><FileText className="h-5 w-5" /></span>
-              <div><p className="text-xs text-slate-500">Нээлттэй тендер</p><p className="text-xl font-bold text-slate-900">{loading ? "..." : tenders.length}</p></div>
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-100 text-orange-600">
+                <FileText className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="text-xs text-slate-500">Нээлттэй тендер</p>
+                <p className="text-xl font-bold text-slate-900">
+                  {loading ? '...' : tenders.length}
+                </p>
+              </div>
             </div>
           </div>
           <div className="absolute bottom-20 left-2 rounded-2xl border border-white/80 bg-white/85 p-4 shadow-[0_24px_55px_-24px_rgba(15,23,42,0.3)] backdrop-blur-xl">
             <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600"><ShieldCheck className="h-5 w-5" /></span>
-              <div><p className="font-semibold text-slate-900">Аюулгүй, ил тод</p><p className="text-xs text-slate-500">Нэгдсэн худалдан авалт</p></div>
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
+                <ShieldCheck className="h-5 w-5" />
+              </span>
+              <div>
+                <p className="font-semibold text-slate-900">Аюулгүй, ил тод</p>
+                <p className="text-xs text-slate-500">Нэгдсэн худалдан авалт</p>
+              </div>
             </div>
           </div>
         </motion.div>

@@ -1,30 +1,26 @@
-"use client";
+'use client';
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Bell, Menu, X } from "lucide-react";
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Bell, Menu, X } from 'lucide-react';
 
-import { Brand } from "@/components/brand";
-import { Button } from "@/components/ui/button";
-import { useAuthState } from "@/hooks/use-auth-state";
-import { clearStoredAuthState } from "@/lib/auth";
+import { Brand } from '@/components/brand';
+import { Button } from '@/components/ui/button';
+import { useAuthState } from '@/hooks/use-auth-state';
+import { clearStoredAuthState } from '@/lib/auth';
 
 export function Navigation() {
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const { isAuthenticated, isReady } = useAuthState();
-  const homeHref = isReady && isAuthenticated ? "/dashboard" : "/";
+  const homeHref = isReady && isAuthenticated ? '/dashboard' : '/';
   const isLoggedIn = isReady && isAuthenticated;
 
   const tenderLinks = [
-    { href: isLoggedIn ? "/tenders/open" : "/#open-tenders", label: "Нээлттэй тендерүүд" },
-    ...(isLoggedIn
-      ? [
-          { href: "/tenders/closed", label: "Оролцсон тендер / Үр дүн" },
-        ]
-      : []),
+    { href: isLoggedIn ? '/tenders/open' : '/#open-tenders', label: 'Нээлттэй тендерүүд' },
+    ...(isLoggedIn ? [{ href: '/tenders/closed', label: 'Оролцсон тендер / Үр дүн' }] : []),
   ];
 
   useEffect(() => {
@@ -32,30 +28,30 @@ export function Navigation() {
       setScrolled(window.scrollY > 10);
     };
 
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
   useEffect(() => {
-    document.body.style.overflow = mobileMenuOpen ? "hidden" : "unset";
+    document.body.style.overflow = mobileMenuOpen ? 'hidden' : 'unset';
 
     return () => {
-      document.body.style.overflow = "unset";
+      document.body.style.overflow = 'unset';
     };
   }, [mobileMenuOpen]);
 
   const handleLogout = () => {
     clearStoredAuthState();
     setMobileMenuOpen(false);
-    router.push("/");
+    router.push('/');
   };
 
   return (
     <header
       className={`sticky top-0 z-50 w-full transition-all duration-200 ${
         scrolled
-          ? "border-b border-border/40 bg-background/80 shadow-sm backdrop-blur-md"
-          : "border-b border-transparent bg-background/0"
+          ? 'border-b border-border/40 bg-background/80 shadow-sm backdrop-blur-md'
+          : 'border-b border-transparent bg-background/0'
       }`}
     >
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
@@ -89,7 +85,6 @@ export function Navigation() {
               Хэрхэн ажилладаг
             </Link>
           )}
-
         </nav>
 
         <div className="hidden items-center gap-3 md:flex">
@@ -164,8 +159,8 @@ export function Navigation() {
       <div
         className={`fixed inset-x-0 bottom-0 top-16 z-40 bg-background/95 backdrop-blur-lg transition-all duration-300 ease-in-out md:hidden ${
           mobileMenuOpen
-            ? "translate-y-0 opacity-100"
-            : "pointer-events-none -translate-y-4 opacity-0"
+            ? 'translate-y-0 opacity-100'
+            : 'pointer-events-none -translate-y-4 opacity-0'
         }`}
       >
         <div className="h-full overflow-y-auto px-4 py-6 shadow-inner">

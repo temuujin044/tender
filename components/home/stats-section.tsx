@@ -1,35 +1,63 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { motion } from "motion/react";
-import { AlertCircle, CheckCircle, FileText } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
-import { useAuthState } from "@/hooks/use-auth-state";
-import { useTenderCatalog } from "@/hooks/use-tenders";
-import { fetchVendorTenders } from "@/lib/api";
-import { getStoredUser } from "@/lib/auth";
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { motion } from 'motion/react';
+import { AlertCircle, CheckCircle, FileText } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { useAuthState } from '@/hooks/use-auth-state';
+import { useTenderCatalog } from '@/hooks/use-tenders';
+import { fetchVendorTenders } from '@/lib/api';
+import { getStoredUser } from '@/lib/auth';
 
 export function StatsSection() {
   const { isAuthenticated, isReady } = useAuthState();
-  const { tenders } = useTenderCatalog("all");
+  const { tenders } = useTenderCatalog('all');
   const [participationCount, setParticipationCount] = useState(0);
-  const openCount = tenders.filter((tender) => tender.status === "open" || tender.status === "closing-soon").length;
-  const closingCount = tenders.filter((tender) => tender.status === "closing-soon").length;
+  const openCount = tenders.filter(
+    (tender) => tender.status === 'open' || tender.status === 'closing-soon'
+  ).length;
+  const closingCount = tenders.filter((tender) => tender.status === 'closing-soon').length;
 
   useEffect(() => {
     const user = getStoredUser();
-    if (user?.vendorId) void fetchVendorTenders(user.vendorId).then((items) => setParticipationCount(items.length));
+    if (user?.vendorId)
+      void fetchVendorTenders(user.vendorId).then((items) => setParticipationCount(items.length));
   }, [isAuthenticated]);
 
   const stats = [
-    { label: "Нээлттэй тендер", value: String(openCount), description: "Санал хүлээн авч байна", icon: FileText, href: "/#open-tenders", color: "text-primary", bgColor: "bg-primary/10", requiresAuth: false },
-    { label: "Удахгүй хаагдах", value: String(closingCount), description: "3 хоногийн дотор", icon: AlertCircle, href: "/#open-tenders", color: "text-amber-600", bgColor: "bg-amber-100", requiresAuth: false },
-    { label: "Оролцсон / Үр дүн", value: String(participationCount), description: "Backend-д бүртгэгдсэн", icon: CheckCircle, href: "/tenders/closed", color: "text-emerald-600", bgColor: "bg-emerald-100", requiresAuth: true },
+    {
+      label: 'Нээлттэй тендер',
+      value: String(openCount),
+      description: 'Санал хүлээн авч байна',
+      icon: FileText,
+      href: '/#open-tenders',
+      color: 'text-primary',
+      bgColor: 'bg-primary/10',
+      requiresAuth: false,
+    },
+    {
+      label: 'Удахгүй хаагдах',
+      value: String(closingCount),
+      description: '3 хоногийн дотор',
+      icon: AlertCircle,
+      href: '/#open-tenders',
+      color: 'text-amber-600',
+      bgColor: 'bg-amber-100',
+      requiresAuth: false,
+    },
+    {
+      label: 'Оролцсон / Үр дүн',
+      value: String(participationCount),
+      description: 'Backend-д бүртгэгдсэн',
+      icon: CheckCircle,
+      href: '/tenders/closed',
+      color: 'text-emerald-600',
+      bgColor: 'bg-emerald-100',
+      requiresAuth: true,
+    },
   ];
-  const visibleStats = stats.filter(
-    (stat) => !stat.requiresAuth || (isReady && isAuthenticated),
-  );
+  const visibleStats = stats.filter((stat) => !stat.requiresAuth || (isReady && isAuthenticated));
 
   return (
     <section className="relative -mt-8 pb-12 pt-2 lg:-mt-12 lg:pb-20">
@@ -42,12 +70,8 @@ export function StatsSection() {
           className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"
         >
           <div>
-            <h2 className="text-lg font-semibold text-primary">
-              Ерөнхий мэдээлэл
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Тендерийн одоогийн байдал
-            </p>
+            <h2 className="text-lg font-semibold text-primary">Ерөнхий мэдээлэл</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Тендерийн одоогийн байдал</p>
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-primary/40 bg-white/82 px-4 py-2 text-xs font-medium uppercase tracking-[0.18em] text-primary/90 shadow-sm backdrop-blur">
             тендерийн шуурхай төлөв
@@ -74,9 +98,7 @@ export function StatsSection() {
                       <div className="absolute inset-x-0 top-0 h-1 bg-linear-to-r from-primary/90 via-primary/70 to-[#eff4f8]" />
                       <div className="flex items-start justify-between gap-4">
                         <div>
-                          <p className="text-sm font-medium text-muted-foreground">
-                            {stat.label}
-                          </p>
+                          <p className="text-sm font-medium text-muted-foreground">{stat.label}</p>
                           <p className="mt-3 text-4xl font-semibold tracking-tight text-foreground">
                             {stat.value}
                           </p>

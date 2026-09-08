@@ -1,8 +1,8 @@
-"use client";
+'use client';
 
-import { Canvas } from "@react-three/fiber";
-import { Environment, Float, Sphere, MeshDistortMaterial, ContactShadows } from "@react-three/drei";
-import { Suspense } from "react";
+import { Canvas } from '@react-three/fiber';
+import { Environment, Float, Sphere, MeshDistortMaterial, ContactShadows } from '@react-three/drei';
+import { Suspense } from 'react';
 
 export function Hero3DScene() {
   return (
@@ -60,7 +60,14 @@ export function Hero3DScene() {
           </Float>
 
           <Environment preset="city" />
-          <ContactShadows position={[0, -3, 0]} opacity={0.32} scale={16} blur={2.5} far={5} color="#9a3412" />
+          <ContactShadows
+            position={[0, -3, 0]}
+            opacity={0.32}
+            scale={16}
+            blur={2.5}
+            far={5}
+            color="#9a3412"
+          />
         </Suspense>
       </Canvas>
     </div>

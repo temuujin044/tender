@@ -1,15 +1,15 @@
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Mail, ArrowRight } from "lucide-react";
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Mail, ArrowRight } from 'lucide-react';
 
 const supportOptions = [
   {
-    title: "И-мэйл илгээх",
-    description: "И-мэйл илгээвэл бид 24 цагийн дотор хариу өгнө",
+    title: 'И-мэйл илгээх',
+    description: 'И-мэйл илгээвэл бид 24 цагийн дотор хариу өгнө',
     icon: Mail,
-    href: "mailto:procurement@mak.mn",
-    action: "И-мэйл илгээх",
+    href: 'mailto:procurement@mak.mn',
+    action: 'И-мэйл илгээх',
   },
 ];
 
@@ -22,8 +22,8 @@ export function TrustSection() {
             Тусламж хэрэгтэй юу?
           </h2>
           <p className="mt-3 text-muted-foreground">
-            Манай тусгай зориулалтын дэмжлэгийн баг худалдан авалтын үйл явцад
-            тань туслахад бэлэн байна
+            Манай тусгай зориулалтын дэмжлэгийн баг худалдан авалтын үйл явцад тань туслахад бэлэн
+            байна
           </p>
         </div>
 
@@ -37,9 +37,7 @@ export function TrustSection() {
                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
                   <option.icon className="h-6 w-6 text-primary" />
                 </div>
-                <h3 className="mt-4 text-base font-semibold text-foreground">
-                  {option.title}
-                </h3>
+                <h3 className="mt-4 text-base font-semibold text-foreground">{option.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                   {option.description}
                 </p>
@@ -72,10 +70,7 @@ export function TrustSection() {
             </div>
             <div className="flex shrink-0 flex-col gap-3 sm:flex-row">
               <Link href="/register">
-                <Button
-                  size="lg"
-                  className="bg-primary/80 text-white hover:bg-[#b9642d]"
-                >
+                <Button size="lg" className="bg-primary/80 text-white hover:bg-[#b9642d]">
                   Одоо бүртгүүлэх
                 </Button>
               </Link>

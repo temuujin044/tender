@@ -1,7 +1,7 @@
-"use client"
+'use client';
 
-import { useEffect, useMemo, useState } from "react"
-import Link from "next/link"
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   AlertCircle,
   ArrowRight,
@@ -15,215 +15,216 @@ import {
   TrendingUp,
   WalletCards,
   type LucideIcon,
-} from "lucide-react"
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+} from 'lucide-react';
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
-} from "@/components/ui/chart"
+} from '@/components/ui/chart';
 import {
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "@/components/ui/empty"
-import { Progress } from "@/components/ui/progress"
-import { Skeleton } from "@/components/ui/skeleton"
-import { useTenderCatalog } from "@/hooks/use-tenders"
-import { fetchQuotes, fetchVendorTenders, type ApiQuote } from "@/lib/api"
-import { getStoredUser } from "@/lib/auth"
-import type { Tender } from "@/lib/tender-data"
+} from '@/components/ui/empty';
+import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useTenderCatalog } from '@/hooks/use-tenders';
+import { fetchQuotes, fetchVendorTenders, type ApiQuote } from '@/lib/api';
+import { getStoredUser } from '@/lib/auth';
+import type { Tender } from '@/lib/tender-data';
 
-type VendorSubmission = { quote: ApiQuote; tender: Tender }
+type VendorSubmission = { quote: ApiQuote; tender: Tender };
 
 const participationChartConfig = {
   proposals: {
-    label: "Саналын тоо",
-    color: "#f97316",
+    label: 'Саналын тоо',
+    color: '#f97316',
   },
-} satisfies ChartConfig
+} satisfies ChartConfig;
 
 function formatMoney(value: number | string | undefined) {
-  return `${new Intl.NumberFormat("mn-MN", { maximumFractionDigits: 0 }).format(Number(value ?? 0))} ₮`
+  return `${new Intl.NumberFormat('mn-MN', { maximumFractionDigits: 0 }).format(Number(value ?? 0))} ₮`;
 }
 
 function formatCompactMoney(value: number) {
-  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)} тэрбум ₮`
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} сая ₮`
-  return formatMoney(value)
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)} тэрбум ₮`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} сая ₮`;
+  return formatMoney(value);
 }
 
 function parseApiDate(value?: string) {
-  if (!value) return null
+  if (!value) return null;
 
-  const normalized = value.trim().replace(/\./g, "-").replace(" ", "T")
-  const parsed = new Date(normalized)
-  if (!Number.isNaN(parsed.getTime())) return parsed
+  const normalized = value.trim().replace(/\./g, '-').replace(' ', 'T');
+  const parsed = new Date(normalized);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
 
-  const parts = value.match(/^(\d{4})[.-](\d{1,2})[.-](\d{1,2})/)
-  if (!parts) return null
-  return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]))
+  const parts = value.match(/^(\d{4})[.-](\d{1,2})[.-](\d{1,2})/);
+  if (!parts) return null;
+  return new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
 }
 
 function formatDate(value?: string) {
-  const date = parseApiDate(value)
-  if (!date) return value || "Огноо бүртгэгдээгүй"
-  const month = String(date.getMonth() + 1).padStart(2, "0")
-  const day = String(date.getDate()).padStart(2, "0")
-  return `${date.getFullYear()}.${month}.${day}`
+  const date = parseApiDate(value);
+  if (!date) return value || 'Огноо бүртгэгдээгүй';
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}.${month}.${day}`;
 }
 
-function getParticipationStatus(status: Tender["status"]) {
-  if (status === "awarded") return { label: "Шалгарсан", className: "bg-emerald-50 text-emerald-700" }
-  if (status === "closed") return { label: "Хаагдсан", className: "bg-slate-100 text-slate-700" }
-  return { label: "Хянагдаж буй", className: "bg-amber-50 text-amber-700" }
+function getParticipationStatus(status: Tender['status']) {
+  if (status === 'awarded')
+    return { label: 'Шалгарсан', className: 'bg-emerald-50 text-emerald-700' };
+  if (status === 'closed') return { label: 'Хаагдсан', className: 'bg-slate-100 text-slate-700' };
+  return { label: 'Хянагдаж буй', className: 'bg-amber-50 text-amber-700' };
 }
 
 export default function DashboardPage() {
-  const [submissions, setSubmissions] = useState<VendorSubmission[]>([])
-  const [vendorTenders, setVendorTenders] = useState<Tender[]>([])
-  const [vendorName, setVendorName] = useState("Нийлүүлэгч")
-  const [historyLoading, setHistoryLoading] = useState(true)
-  const [historyError, setHistoryError] = useState("")
+  const [submissions, setSubmissions] = useState<VendorSubmission[]>([]);
+  const [vendorTenders, setVendorTenders] = useState<Tender[]>([]);
+  const [vendorName, setVendorName] = useState('Нийлүүлэгч');
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState('');
   const {
     tenders: openTenders,
     loading: openTenderLoading,
     error: openTenderError,
-  } = useTenderCatalog("open")
+  } = useTenderCatalog('open');
 
   useEffect(() => {
-    let cancelled = false
-    const user = getStoredUser()
+    let cancelled = false;
+    const user = getStoredUser();
 
-    if (user?.vendorName) setVendorName(user.vendorName)
+    if (user?.vendorName) setVendorName(user.vendorName);
     if (!user?.vendorId) {
-      setHistoryLoading(false)
-      return
+      setHistoryLoading(false);
+      return;
     }
 
     const loadVendorHistory = async () => {
       try {
-        const rows = await fetchVendorTenders(user.vendorId!)
+        const rows = await fetchVendorTenders(user.vendorId!);
         const quoteGroups = await Promise.all(
           rows.map(async (tender) => {
-            const quotes = await fetchQuotes(tender.invitationId, user.vendorId!)
-            return quotes.map((quote) => ({ quote, tender }))
-          }),
-        )
+            const quotes = await fetchQuotes(tender.invitationId, user.vendorId!);
+            return quotes.map((quote) => ({ quote, tender }));
+          })
+        );
 
         if (!cancelled) {
-          setVendorTenders(rows)
-          setSubmissions(quoteGroups.flat())
+          setVendorTenders(rows);
+          setSubmissions(quoteGroups.flat());
         }
       } catch (requestError) {
         if (!cancelled) {
           setHistoryError(
             requestError instanceof Error
               ? requestError.message
-              : "Оролцооны түүхийг ачаалж чадсангүй.",
-          )
+              : 'Оролцооны түүхийг ачаалж чадсангүй.'
+          );
         }
       } finally {
-        if (!cancelled) setHistoryLoading(false)
+        if (!cancelled) setHistoryLoading(false);
       }
-    }
+    };
 
-    void loadVendorHistory()
+    void loadVendorHistory();
     return () => {
-      cancelled = true
-    }
-  }, [])
+      cancelled = true;
+    };
+  }, []);
 
   const recentSubmissions = useMemo(
     () =>
       [...submissions].sort((left, right) => {
-        const leftTime = parseApiDate(left.quote.qoutedate)?.getTime() ?? 0
-        const rightTime = parseApiDate(right.quote.qoutedate)?.getTime() ?? 0
-        return rightTime - leftTime
+        const leftTime = parseApiDate(left.quote.qoutedate)?.getTime() ?? 0;
+        const rightTime = parseApiDate(right.quote.qoutedate)?.getTime() ?? 0;
+        return rightTime - leftTime;
       }),
-    [submissions],
-  )
+    [submissions]
+  );
 
   const participationChartData = useMemo(() => {
     const datedSubmissions = submissions
       .map((submission) => ({ submission, date: parseApiDate(submission.quote.qoutedate) }))
-      .filter((item): item is { submission: VendorSubmission; date: Date } => item.date !== null)
+      .filter((item): item is { submission: VendorSubmission; date: Date } => item.date !== null);
     const latestDate = datedSubmissions.reduce<Date | null>(
       (latest, item) => (!latest || item.date > latest ? item.date : latest),
-      null,
-    )
-    const anchor = latestDate ?? new Date()
+      null
+    );
+    const anchor = latestDate ?? new Date();
     const months = Array.from({ length: 6 }, (_, index) => {
-      const date = new Date(anchor.getFullYear(), anchor.getMonth() - (5 - index), 1)
+      const date = new Date(anchor.getFullYear(), anchor.getMonth() - (5 - index), 1);
       return {
         key: `${date.getFullYear()}-${date.getMonth()}`,
         month: `${date.getMonth() + 1}-р сар`,
         proposals: 0,
-      }
-    })
-    const monthMap = new Map(months.map((month) => [month.key, month]))
+      };
+    });
+    const monthMap = new Map(months.map((month) => [month.key, month]));
 
     for (const item of datedSubmissions) {
-      const key = `${item.date.getFullYear()}-${item.date.getMonth()}`
-      const month = monthMap.get(key)
-      if (month) month.proposals += 1
+      const key = `${item.date.getFullYear()}-${item.date.getMonth()}`;
+      const month = monthMap.get(key);
+      if (month) month.proposals += 1;
     }
 
-    return months
-  }, [submissions])
+    return months;
+  }, [submissions]);
 
   const activeParticipation = vendorTenders.filter((item) =>
-    ["open", "closing-soon", "upcoming"].includes(item.status),
-  ).length
+    ['open', 'closing-soon', 'upcoming'].includes(item.status)
+  ).length;
   const closedParticipation = vendorTenders.filter((item) =>
-    ["closed", "awarded"].includes(item.status),
-  ).length
-  const awarded = vendorTenders.filter((item) => item.status === "awarded").length
+    ['closed', 'awarded'].includes(item.status)
+  ).length;
+  const awarded = vendorTenders.filter((item) => item.status === 'awarded').length;
   const totalProposalAmount = submissions.reduce(
     (total, item) => total + (Number(item.quote.qouteamount) || 0),
-    0,
-  )
+    0
+  );
   const resultProgress = vendorTenders.length
     ? Math.round((closedParticipation / vendorTenders.length) * 100)
-    : 0
+    : 0;
 
   const journeySteps = [
     {
-      label: "Нээлттэй боломж",
-      detail: "Одоо санал авч буй",
+      label: 'Нээлттэй боломж',
+      detail: 'Одоо санал авч буй',
       value: openTenders.length,
       icon: PackageSearch,
-      tone: "bg-orange-50 text-orange-600",
+      tone: 'bg-orange-50 text-orange-600',
     },
     {
-      label: "Оролцсон тендер",
-      detail: "Нийт оролцооны түүх",
+      label: 'Оролцсон тендер',
+      detail: 'Нийт оролцооны түүх',
       value: vendorTenders.length,
       icon: Send,
-      tone: "bg-blue-50 text-blue-600",
+      tone: 'bg-blue-50 text-blue-600',
     },
     {
-      label: "Хянагдаж буй",
-      detail: "Идэвхтэй оролцоо",
+      label: 'Хянагдаж буй',
+      detail: 'Идэвхтэй оролцоо',
       value: activeParticipation,
       icon: Clock3,
-      tone: "bg-amber-50 text-amber-600",
+      tone: 'bg-amber-50 text-amber-600',
     },
     {
-      label: "Хаагдсан",
+      label: 'Хаагдсан',
       detail: `${awarded} тендерт шалгарсан`,
       value: closedParticipation,
       icon: CheckCircle2,
-      tone: "bg-emerald-50 text-emerald-600",
+      tone: 'bg-emerald-50 text-emerald-600',
     },
-  ]
+  ];
 
   return (
     <div className="min-h-full bg-slate-50/70 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
@@ -233,9 +234,7 @@ export default function DashboardPage() {
             <p className="pl-11 text-xs font-semibold uppercase text-orange-600 sm:pl-0">
               НИЙЛҮҮЛЭГЧИЙН ПОРТАЛ
             </p>
-            <h1 className="mt-1 text-2xl font-bold text-slate-950 sm:text-3xl">
-              Хяналтын самбар
-            </h1>
+            <h1 className="mt-1 text-2xl font-bold text-slate-950 sm:text-3xl">Хяналтын самбар</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-500 sm:line-clamp-2 sm:text-base">
               {vendorName} компанийн тендерийн боломж, санал болон үр дүнгийн нэгдсэн тойм
             </p>
@@ -264,31 +263,34 @@ export default function DashboardPage() {
           </Alert>
         )}
 
-        <section className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Үндсэн үзүүлэлт">
+        <section
+          className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+          aria-label="Үндсэн үзүүлэлт"
+        >
           <Stat
             label="Нээлттэй боломж"
-            value={openTenderLoading ? "—" : openTenders.length}
+            value={openTenderLoading ? '—' : openTenders.length}
             detail="Санал хүлээн авч буй тендер"
             icon={PackageSearch}
             tone="bg-orange-50 text-orange-600"
           />
           <Stat
             label="Оролцсон тендер"
-            value={historyLoading ? "—" : vendorTenders.length}
+            value={historyLoading ? '—' : vendorTenders.length}
             detail="Бүртгэгдсэн нийт оролцоо"
             icon={FileText}
             tone="bg-blue-50 text-blue-600"
           />
           <Stat
             label="Илгээсэн санал"
-            value={historyLoading ? "—" : submissions.length}
+            value={historyLoading ? '—' : submissions.length}
             detail="Багц тус бүрийн үнийн санал"
             icon={Send}
             tone="bg-violet-50 text-violet-600"
           />
           <Stat
             label="Нийт саналын дүн"
-            value={historyLoading ? "—" : formatCompactMoney(totalProposalAmount)}
+            value={historyLoading ? '—' : formatCompactMoney(totalProposalAmount)}
             detail="Илгээсэн саналуудын нийлбэр"
             icon={WalletCards}
             tone="bg-emerald-50 text-emerald-600"
@@ -325,7 +327,7 @@ export default function DashboardPage() {
                     <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={10} />
                     <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={32} />
                     <ChartTooltip
-                      cursor={{ fill: "#f8fafc" }}
+                      cursor={{ fill: '#f8fafc' }}
                       content={<ChartTooltipContent indicator="dot" />}
                     />
                     <Bar
@@ -345,9 +347,7 @@ export default function DashboardPage() {
               <CardTitle className="text-base font-semibold text-slate-900 sm:text-lg">
                 Тендерийн явц
               </CardTitle>
-              <p className="mt-1 text-sm text-slate-500">
-                Оролцооны үе шатны бодит үзүүлэлт
-              </p>
+              <p className="mt-1 text-sm text-slate-500">Оролцооны үе шатны бодит үзүүлэлт</p>
             </CardHeader>
             <CardContent>
               {historyLoading || openTenderLoading ? (
@@ -361,7 +361,9 @@ export default function DashboardPage() {
                   {journeySteps.map((step, index) => (
                     <div key={step.label}>
                       <div className="flex items-center gap-3">
-                        <div className={`flex size-10 shrink-0 items-center justify-center rounded-md ${step.tone}`}>
+                        <div
+                          className={`flex size-10 shrink-0 items-center justify-center rounded-md ${step.tone}`}
+                        >
                           <step.icon className="size-5" />
                         </div>
                         <div className="min-w-0 flex-1">
@@ -382,9 +384,14 @@ export default function DashboardPage() {
               <div className="mt-5 border-t border-slate-100 pt-4">
                 <div className="mb-2 flex items-center justify-between gap-3 text-xs">
                   <span className="text-slate-500">Хаагдсан оролцооны хувь</span>
-                  <span className="font-semibold tabular-nums text-slate-800">{resultProgress}%</span>
+                  <span className="font-semibold tabular-nums text-slate-800">
+                    {resultProgress}%
+                  </span>
                 </div>
-                <Progress value={resultProgress} className="h-1.5 bg-slate-100 [&>div]:bg-orange-500" />
+                <Progress
+                  value={resultProgress}
+                  className="h-1.5 bg-slate-100 [&>div]:bg-orange-500"
+                />
               </div>
             </CardContent>
           </Card>
@@ -414,7 +421,7 @@ export default function DashboardPage() {
               ) : recentSubmissions.length ? (
                 <div className="divide-y divide-slate-100 border-y border-slate-100">
                   {recentSubmissions.slice(0, 5).map(({ quote, tender }) => {
-                    const status = getParticipationStatus(tender.status)
+                    const status = getParticipationStatus(tender.status);
                     return (
                       <Link
                         key={quote.qouteid}
@@ -434,7 +441,8 @@ export default function DashboardPage() {
                             {tender.title}
                           </p>
                           <p className="mt-1 truncate text-xs text-slate-500">
-                            {quote.batchname || "Тендерийн нийт санал"} · {formatDate(quote.qoutedate)}
+                            {quote.batchname || 'Тендерийн нийт санал'} ·{' '}
+                            {formatDate(quote.qoutedate)}
                           </p>
                         </div>
                         <div className="text-left sm:text-right">
@@ -446,7 +454,7 @@ export default function DashboardPage() {
                           </p>
                         </div>
                       </Link>
-                    )
+                    );
                   })}
                 </div>
               ) : (
@@ -521,7 +529,7 @@ export default function DashboardPage() {
                     </EmptyMedia>
                     <EmptyTitle className="text-base">Нээлттэй тендер алга</EmptyTitle>
                     <EmptyDescription>
-                      {openTenderError || "Одоогоор санал авч буй тендер бүртгэгдээгүй байна."}
+                      {openTenderError || 'Одоогоор санал авч буй тендер бүртгэгдээгүй байна.'}
                     </EmptyDescription>
                   </EmptyHeader>
                 </Empty>
@@ -537,7 +545,7 @@ export default function DashboardPage() {
         </section>
       </div>
     </div>
-  )
+  );
 }
 
 function DashboardListSkeleton() {
@@ -547,7 +555,7 @@ function DashboardListSkeleton() {
         <Skeleton key={index} className="h-[76px] w-full rounded-md" />
       ))}
     </div>
-  )
+  );
 }
 
 function Stat({
@@ -558,12 +566,12 @@ function Stat({
   tone,
   compact = false,
 }: {
-  label: string
-  value: number | string
-  detail: string
-  icon: LucideIcon
-  tone: string
-  compact?: boolean
+  label: string;
+  value: number | string;
+  detail: string;
+  icon: LucideIcon;
+  tone: string;
+  compact?: boolean;
 }) {
   return (
     <Card className="gap-0 rounded-lg border-slate-200 py-0 shadow-sm">
@@ -573,7 +581,7 @@ function Stat({
             <p className="text-sm text-slate-500">{label}</p>
             <p
               className={`mt-2 truncate font-semibold tabular-nums text-slate-950 ${
-                compact ? "text-lg xl:text-xl" : "text-3xl"
+                compact ? 'text-lg xl:text-xl' : 'text-3xl'
               }`}
               title={String(value)}
             >
@@ -587,5 +595,5 @@ function Stat({
         <p className="mt-3 truncate text-xs text-slate-500">{detail}</p>
       </CardContent>
     </Card>
-  )
+  );
 }

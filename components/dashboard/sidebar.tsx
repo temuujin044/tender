@@ -1,8 +1,8 @@
-"use client";
+'use client';
 
-import Image from "next/image";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import Image from 'next/image';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import {
   Bell,
   ChevronLeft,
@@ -12,73 +12,70 @@ import {
   LogOut,
   Menu,
   User,
-} from "lucide-react";
-import { useEffect, useState } from "react";
+} from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from "@/components/ui/accordion";
-import { Button } from "@/components/ui/button";
-import { AUTH_STATE_EVENT, clearStoredAuthState, getStoredUser, type AuthUser } from "@/lib/auth";
-import { cn } from "@/lib/utils";
+} from '@/components/ui/accordion';
+import { Button } from '@/components/ui/button';
+import { AUTH_STATE_EVENT, clearStoredAuthState, getStoredUser, type AuthUser } from '@/lib/auth';
+import { cn } from '@/lib/utils';
 
 const primaryItems = [
   {
-    label: "Хяналтын самбар",
-    href: "/dashboard",
+    label: 'Хяналтын самбар',
+    href: '/dashboard',
     icon: LayoutDashboard,
   },
   {
-    label: "Миний тендерүүд",
-    href: "/dashboard/my-tenders",
+    label: 'Миний тендерүүд',
+    href: '/dashboard/my-tenders',
     icon: FolderOpen,
   },
 ];
 
 const tenderItems = [
   {
-    label: "Нээлттэй тендерүүд",
-    href: "/tenders/open",
+    label: 'Нээлттэй тендерүүд',
+    href: '/tenders/open',
   },
   {
-    label: "Оролцсон тендер / Үр дүн",
-    href: "/tenders/closed",
+    label: 'Оролцсон тендер / Үр дүн',
+    href: '/tenders/closed',
   },
 ];
 
 const secondaryItems = [
   {
-    label: "Мэдэгдэл",
-    href: "/dashboard/notifications",
+    label: 'Мэдэгдэл',
+    href: '/dashboard/notifications',
     icon: Bell,
   },
   {
-    label: "Профайл",
-    href: "/dashboard/profile",
+    label: 'Профайл',
+    href: '/dashboard/profile',
     icon: User,
   },
 ];
 
 function isTenderRoute(pathname: string) {
-  return pathname.startsWith("/tenders");
+  return pathname.startsWith('/tenders');
 }
 
 function getActiveTenderHref(pathname: string) {
-  if (pathname === "/tenders/closed") {
-    return "/tenders/closed";
+  if (pathname === '/tenders/closed') {
+    return '/tenders/closed';
   }
 
-  if (
-    pathname === "/tenders/open" ||
-    /^\/tenders\/[^/]+(\/submit)?$/.test(pathname)
-  ) {
-    return "/tenders/open";
+  if (pathname === '/tenders/open' || /^\/tenders\/[^/]+(\/submit)?$/.test(pathname)) {
+    return '/tenders/open';
   }
 
-  return "";
+  return '';
 }
 
 function getIsActive(pathname: string, href: string) {
@@ -86,7 +83,7 @@ function getIsActive(pathname: string, href: string) {
     return true;
   }
 
-  if (href === "/dashboard" && pathname.startsWith("/dashboard/")) {
+  if (href === '/dashboard' && pathname.startsWith('/dashboard/')) {
     return false;
   }
 
@@ -98,21 +95,19 @@ export function DashboardSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [openSection, setOpenSection] = useState(
-    isTenderRoute(pathname) ? "tenders" : "",
-  );
+  const [openSection, setOpenSection] = useState(isTenderRoute(pathname) ? 'tenders' : '');
 
   const activeTenderHref = getActiveTenderHref(pathname);
   const isTenderSectionActive = isTenderRoute(pathname);
 
   useEffect(() => {
     if (collapsed) {
-      setOpenSection("");
+      setOpenSection('');
       return;
     }
 
     if (isTenderRoute(pathname)) {
-      setOpenSection("tenders");
+      setOpenSection('tenders');
     }
   }, [collapsed, pathname]);
 
@@ -130,7 +125,7 @@ export function DashboardSidebar() {
 
   const expandTenderSection = () => {
     setCollapsed(false);
-    setOpenSection("tenders");
+    setOpenSection('tenders');
   };
 
   return (
@@ -153,9 +148,9 @@ export function DashboardSidebar() {
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex h-screen shrink-0 flex-col border-r border-slate-200 bg-white shadow-[4px_0_24px_rgba(0,0,0,0.02)] transition-all duration-300 ease-in-out lg:relative lg:z-0",
-          collapsed ? "w-20" : "w-64",
-          mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
+          'fixed inset-y-0 left-0 z-50 flex h-screen shrink-0 flex-col border-r border-slate-200 bg-white shadow-[4px_0_24px_rgba(0,0,0,0.02)] transition-all duration-300 ease-in-out lg:relative lg:z-0',
+          collapsed ? 'w-20' : 'w-64',
+          mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         )}
       >
         <Button
@@ -165,10 +160,7 @@ export function DashboardSidebar() {
           onClick={() => setCollapsed((prev) => !prev)}
         >
           <ChevronLeft
-            className={cn(
-              "h-4 w-4 transition-transform duration-300",
-              collapsed && "rotate-180",
-            )}
+            className={cn('h-4 w-4 transition-transform duration-300', collapsed && 'rotate-180')}
           />
         </Button>
 
@@ -203,11 +195,11 @@ export function DashboardSidebar() {
                   href={item.href}
                   title={collapsed ? item.label : undefined}
                   className={cn(
-                    "group relative flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-all duration-200",
+                    'group relative flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-all duration-200',
                     isActive
-                      ? "bg-orange-50 text-orange-600"
-                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-900",
-                    collapsed && "justify-center px-2",
+                      ? 'bg-orange-50 text-orange-600'
+                      : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900',
+                    collapsed && 'justify-center px-2'
                   )}
                   onClick={() => setMobileOpen(false)}
                 >
@@ -217,10 +209,8 @@ export function DashboardSidebar() {
 
                   <item.icon
                     className={cn(
-                      "h-5 w-5 shrink-0 transition-colors",
-                      isActive
-                        ? "text-orange-500"
-                        : "text-slate-400 group-hover:text-slate-600",
+                      'h-5 w-5 shrink-0 transition-colors',
+                      isActive ? 'text-orange-500' : 'text-slate-400 group-hover:text-slate-600'
                     )}
                   />
 
@@ -234,19 +224,19 @@ export function DashboardSidebar() {
                 type="button"
                 title="Тендер"
                 className={cn(
-                  "group relative flex w-full justify-center rounded-xl px-2 py-3 text-sm font-medium transition-all duration-200",
+                  'group relative flex w-full justify-center rounded-xl px-2 py-3 text-sm font-medium transition-all duration-200',
                   isTenderSectionActive
-                    ? "bg-orange-50 text-orange-600"
-                    : "text-slate-500 hover:bg-slate-50 hover:text-slate-900",
+                    ? 'bg-orange-50 text-orange-600'
+                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                 )}
                 onClick={expandTenderSection}
               >
                 <FileText
                   className={cn(
-                    "h-5 w-5 shrink-0 transition-colors",
+                    'h-5 w-5 shrink-0 transition-colors',
                     isTenderSectionActive
-                      ? "text-orange-500"
-                      : "text-slate-400 group-hover:text-slate-600",
+                      ? 'text-orange-500'
+                      : 'text-slate-400 group-hover:text-slate-600'
                   )}
                 />
               </button>
@@ -261,19 +251,17 @@ export function DashboardSidebar() {
                 <AccordionItem value="tenders" className="border-none">
                   <AccordionTrigger
                     className={cn(
-                      "rounded-xl px-3 py-3 text-sm font-medium hover:no-underline",
+                      'rounded-xl px-3 py-3 text-sm font-medium hover:no-underline',
                       isTenderSectionActive
-                        ? "bg-orange-50 text-orange-600"
-                        : "text-slate-500 hover:bg-slate-50 hover:text-slate-900",
+                        ? 'bg-orange-50 text-orange-600'
+                        : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                     )}
                   >
                     <span className="flex items-center gap-3">
                       <FileText
                         className={cn(
-                          "h-5 w-5 shrink-0 transition-colors",
-                          isTenderSectionActive
-                            ? "text-orange-500"
-                            : "text-slate-400",
+                          'h-5 w-5 shrink-0 transition-colors',
+                          isTenderSectionActive ? 'text-orange-500' : 'text-slate-400'
                         )}
                       />
                       <span>Тендер</span>
@@ -289,17 +277,17 @@ export function DashboardSidebar() {
                             key={item.href}
                             href={item.href}
                             className={cn(
-                              "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
+                              'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors',
                               isActive
-                                ? "bg-orange-50/80 font-medium text-orange-600"
-                                : "text-slate-500 hover:bg-slate-50 hover:text-slate-900",
+                                ? 'bg-orange-50/80 font-medium text-orange-600'
+                                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
                             )}
                             onClick={() => setMobileOpen(false)}
                           >
                             <span
                               className={cn(
-                                "h-1.5 w-1.5 rounded-full",
-                                isActive ? "bg-orange-500" : "bg-slate-300",
+                                'h-1.5 w-1.5 rounded-full',
+                                isActive ? 'bg-orange-500' : 'bg-slate-300'
                               )}
                             />
                             <span className="truncate">{item.label}</span>
@@ -321,11 +309,11 @@ export function DashboardSidebar() {
                   href={item.href}
                   title={collapsed ? item.label : undefined}
                   className={cn(
-                    "group relative flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-all duration-200",
+                    'group relative flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-all duration-200',
                     isActive
-                      ? "bg-orange-50 text-orange-600"
-                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-900",
-                    collapsed && "justify-center px-2",
+                      ? 'bg-orange-50 text-orange-600'
+                      : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900',
+                    collapsed && 'justify-center px-2'
                   )}
                   onClick={() => setMobileOpen(false)}
                 >
@@ -335,10 +323,8 @@ export function DashboardSidebar() {
 
                   <item.icon
                     className={cn(
-                      "h-5 w-5 shrink-0 transition-colors",
-                      isActive
-                        ? "text-orange-500"
-                        : "text-slate-400 group-hover:text-slate-600",
+                      'h-5 w-5 shrink-0 transition-colors',
+                      isActive ? 'text-orange-500' : 'text-slate-400 group-hover:text-slate-600'
                     )}
                   />
 
@@ -352,8 +338,8 @@ export function DashboardSidebar() {
         <div className="border-t border-slate-100 p-4">
           <div
             className={cn(
-              "flex items-center gap-3 rounded-xl bg-slate-50 p-3 transition-all",
-              collapsed ? "justify-center" : "justify-start",
+              'flex items-center gap-3 rounded-xl bg-slate-50 p-3 transition-all',
+              collapsed ? 'justify-center' : 'justify-start'
             )}
           >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-orange-100 text-orange-600 ring-2 ring-white">
@@ -362,10 +348,10 @@ export function DashboardSidebar() {
             {!collapsed && (
               <div className="min-w-0 flex-1 overflow-hidden">
                 <p className="truncate text-sm font-semibold text-slate-700">
-                  {user?.contactName ?? "Тест хэрэглэгч"}
+                  {user?.contactName ?? 'Тест хэрэглэгч'}
                 </p>
                 <p className="truncate text-xs text-slate-500">
-                  {user?.email ?? "test@company.mn"}
+                  {user?.email ?? 'test@company.mn'}
                 </p>
               </div>
             )}
@@ -375,8 +361,8 @@ export function DashboardSidebar() {
             <Button
               variant="ghost"
               className={cn(
-                "w-full text-slate-500 transition-colors hover:bg-red-50 hover:text-red-600",
-                collapsed ? "justify-center px-0" : "justify-start px-4",
+                'w-full text-slate-500 transition-colors hover:bg-red-50 hover:text-red-600',
+                collapsed ? 'justify-center px-0' : 'justify-start px-4'
               )}
             >
               <LogOut className="h-4 w-4" />
