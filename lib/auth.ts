@@ -8,7 +8,7 @@ const LEGACY_USERS_KEY = 'mak_tender_dummy_users';
 const AUTH_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
 
 export type AuthUser = {
-  role: 'vendor' | 'employee';
+  role: 'vendor' | 'employee' | 'admin';
   vendorId?: number;
   employeeId?: number;
   userId?: number;

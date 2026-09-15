@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { DataPagination } from '@/components/data-pagination';
 import { fetchQuotes, fetchVendorTenders } from '@/lib/api';
 import { getStoredUser } from '@/lib/auth';
 
@@ -77,6 +78,8 @@ export function ParticipationResults() {
   const [submissions, setSubmissions] = useState<VendorSubmission[]>([]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
     const user = getStoredUser();
@@ -121,6 +124,14 @@ export function ParticipationResults() {
       }),
     [filter, query, submissions]
   );
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const visibleSubmissions = useMemo(
+    () => filtered.slice((page - 1) * pageSize, page * pageSize),
+    [filtered, page, pageSize]
+  );
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
   const pendingCount = submissions.filter((item) =>
     ['submitted', 'under-review'].includes(item.status)
@@ -172,7 +183,13 @@ export function ParticipationResults() {
       <Card className="overflow-hidden border-slate-200 shadow-sm">
         <CardContent className="border-b border-slate-100 p-4 sm:p-5">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <Tabs value={filter} onValueChange={setFilter}>
+            <Tabs
+              value={filter}
+              onValueChange={(value) => {
+                setFilter(value);
+                setPage(1);
+              }}
+            >
               <TabsList className="h-auto flex-wrap justify-start">
                 <TabsTrigger value="all">Бүгд</TabsTrigger>
                 <TabsTrigger value="pending">Хянагдаж буй</TabsTrigger>
@@ -184,7 +201,10 @@ export function ParticipationResults() {
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setPage(1);
+                }}
                 placeholder="Тендер, санал, багцын кодоор хайх"
                 className="pl-9"
               />
@@ -194,66 +214,79 @@ export function ParticipationResults() {
 
         <CardContent className="p-0">
           {filtered.length ? (
-            <div className="divide-y divide-slate-100">
-              {filtered.map((submission) => {
-                const config = resultConfig[submission.status];
-                const ResultIcon = config.icon;
+            <>
+              <div className="divide-y divide-slate-100">
+                {visibleSubmissions.map((submission) => {
+                  const config = resultConfig[submission.status];
+                  const ResultIcon = config.icon;
 
-                return (
-                  <article
-                    key={submission.id}
-                    className="p-5 transition-colors hover:bg-slate-50/80 sm:p-6"
-                  >
-                    <div className="flex flex-col gap-5 lg:flex-row lg:items-center">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant="outline" className={config.className}>
-                            <ResultIcon className="mr-1.5 h-3.5 w-3.5" />
-                            {config.label}
-                          </Badge>
-                          <span className="text-xs font-medium text-slate-500">
-                            {submission.tenderCode}
-                          </span>
-                          <span className="text-xs text-slate-400">Q-{submission.id}</span>
+                  return (
+                    <article
+                      key={submission.id}
+                      className="p-5 transition-colors hover:bg-slate-50/80 sm:p-6"
+                    >
+                      <div className="flex flex-col gap-5 lg:flex-row lg:items-center">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="outline" className={config.className}>
+                              <ResultIcon className="mr-1.5 h-3.5 w-3.5" />
+                              {config.label}
+                            </Badge>
+                            <span className="text-xs font-medium text-slate-500">
+                              {submission.tenderCode}
+                            </span>
+                            <span className="text-xs text-slate-400">Q-{submission.id}</span>
+                          </div>
+                          <h2 className="mt-3 text-base font-semibold text-slate-900 sm:text-lg">
+                            {submission.title}
+                          </h2>
+                          <p className="mt-1 text-sm text-slate-500">{config.description}</p>
+                          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-500">
+                            <span className="flex items-center gap-1.5">
+                              <Building2 className="h-4 w-4" />
+                              {submission.batchName}
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <CalendarDays className="h-4 w-4" />
+                              {submission.submittedAt || 'Тодорхойгүй'}
+                            </span>
+                          </div>
                         </div>
-                        <h2 className="mt-3 text-base font-semibold text-slate-900 sm:text-lg">
-                          {submission.title}
-                        </h2>
-                        <p className="mt-1 text-sm text-slate-500">{config.description}</p>
-                        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-500">
-                          <span className="flex items-center gap-1.5">
-                            <Building2 className="h-4 w-4" />
-                            {submission.batchName}
-                          </span>
-                          <span className="flex items-center gap-1.5">
-                            <CalendarDays className="h-4 w-4" />
-                            {submission.submittedAt || 'Тодорхойгүй'}
-                          </span>
+
+                        <div className="flex items-center justify-between gap-5 border-t border-slate-100 pt-4 lg:min-w-72 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+                          <div>
+                            <p className="text-xs text-slate-500">Илгээсэн үнийн санал</p>
+                            <p className="mt-1 text-lg font-bold text-slate-900">
+                              {formatMoney(submission.quoteAmount)}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              Хүргэлт: {submission.deliveryDays} хоног
+                            </p>
+                          </div>
+                          <Link href={`/tenders/${submission.tenderId}`}>
+                            <Button variant="outline" size="sm" className="shrink-0">
+                              Харах
+                              <ArrowRight className="ml-2 h-4 w-4" />
+                            </Button>
+                          </Link>
                         </div>
                       </div>
-
-                      <div className="flex items-center justify-between gap-5 border-t border-slate-100 pt-4 lg:min-w-72 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
-                        <div>
-                          <p className="text-xs text-slate-500">Илгээсэн үнийн санал</p>
-                          <p className="mt-1 text-lg font-bold text-slate-900">
-                            {formatMoney(submission.quoteAmount)}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            Хүргэлт: {submission.deliveryDays} хоног
-                          </p>
-                        </div>
-                        <Link href={`/tenders/${submission.tenderId}`}>
-                          <Button variant="outline" size="sm" className="shrink-0">
-                            Харах
-                            <ArrowRight className="ml-2 h-4 w-4" />
-                          </Button>
-                        </Link>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
+                    </article>
+                  );
+                })}
+              </div>
+              <DataPagination
+                page={page}
+                pageSize={pageSize}
+                totalItems={filtered.length}
+                itemLabel="оролцоо"
+                onPageChange={setPage}
+                onPageSizeChange={(size) => {
+                  setPageSize(size);
+                  setPage(1);
+                }}
+              />
+            </>
           ) : (
             <div className="px-6 py-16 text-center">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
@@ -269,6 +302,7 @@ export function ParticipationResults() {
                 onClick={() => {
                   setQuery('');
                   setFilter('all');
+                  setPage(1);
                 }}
               >
                 Шүүлтүүр цэвэрлэх

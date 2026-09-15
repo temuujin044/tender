@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -30,6 +30,8 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { SearchableSelect } from '@/components/ui/searchable-select';
+import { SearchableMultiSelect } from '@/components/ui/searchable-multi-select';
 import {
   type CompanyFormData,
   companyStatusOptions,
@@ -41,7 +43,7 @@ import {
   validateCredentialFields,
 } from '@/lib/company-form';
 import { cn } from '@/lib/utils';
-import { registerVendor } from '@/lib/api';
+import { fetchVendorActivities, registerVendor, type VendorActivity } from '@/lib/api';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -50,6 +52,27 @@ export default function RegisterPage() {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<CompanyFormData>(emptyCompanyFormData);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [activities, setActivities] = useState<VendorActivity[]>([]);
+  const [activitiesLoading, setActivitiesLoading] = useState(true);
+  const [activityLoadError, setActivityLoadError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchVendorActivities()
+      .then((rows) => {
+        if (!cancelled) setActivities(rows);
+      })
+      .catch(() => {
+        if (!cancelled)
+          setActivityLoadError('Үйл ажиллагааны чиглэлийн сонголтыг ачаалж чадсангүй.');
+      })
+      .finally(() => {
+        if (!cancelled) setActivitiesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const updateField = <K extends keyof CompanyFormData>(field: K, value: CompanyFormData[K]) => {
     setFormData((current) => ({
@@ -97,6 +120,14 @@ export default function RegisterPage() {
   const handleNext = () => {
     if (step === 1) {
       const nextErrors = validateCompanyFields(formData);
+      if (
+        !formData.businessDirections.length ||
+        formData.businessDirections.some(
+          (selected) => !activities.some((activity) => String(activity.activityid) === selected)
+        )
+      ) {
+        nextErrors.businessDirections = 'Үйл ажиллагааны чиглэлээ жагсаалтаас сонгоно уу';
+      }
       setErrors(nextErrors);
       if (Object.keys(nextErrors).length === 0) {
         setStep(2);
@@ -281,21 +312,17 @@ export default function RegisterPage() {
                       <Label htmlFor="country" className="text-slate-700">
                         Улс<span className="text-red-500">*</span>
                       </Label>
-                      <Select
-                        value={formData.country || undefined}
+                      <SearchableSelect
+                        id="country"
+                        value={formData.country}
+                        options={countryOptions}
                         onValueChange={(value) => updateField('country', value)}
-                      >
-                        <SelectTrigger id="country" className={getSelectClass('country')}>
-                          <SelectValue placeholder="Сонгох..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {countryOptions.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        placeholder="Улс сонгох..."
+                        searchPlaceholder="Улсын нэр эсвэл кодоор хайх..."
+                        emptyMessage="Улс олдсонгүй."
+                        invalid={Boolean(errors.country)}
+                        className={getSelectClass('country')}
+                      />
                       {renderError('country')}
                     </div>
                   </div>
@@ -401,14 +428,27 @@ export default function RegisterPage() {
                         Үйл ажиллагааны чиглэл
                         <span className="text-red-500">*</span>
                       </Label>
-                      <Input
+                      <SearchableMultiSelect
                         id="businessDirection"
-                        placeholder="Жишээ: Барилга, ханган нийлүүлэлт"
-                        value={formData.businessDirection}
-                        onChange={(e) => updateField('businessDirection', e.target.value)}
-                        className={getFieldClass('businessDirection')}
+                        value={formData.businessDirections}
+                        options={activities.map((activity) => ({
+                          value: String(activity.activityid),
+                          label: activity.activity,
+                        }))}
+                        onValueChange={(value) => updateField('businessDirections', value)}
+                        placeholder={
+                          activitiesLoading ? 'Сонголт ачаалж байна...' : 'Чиглэл сонгох...'
+                        }
+                        searchPlaceholder="Үйл ажиллагааны чиглэл хайх..."
+                        emptyMessage="Чиглэл олдсонгүй."
+                        disabled={activitiesLoading || Boolean(activityLoadError)}
+                        invalid={Boolean(errors.businessDirections)}
+                        className={getSelectClass('businessDirections')}
                       />
-                      {renderError('businessDirection')}
+                      {activityLoadError && (
+                        <p className="text-xs font-medium text-red-500">{activityLoadError}</p>
+                      )}
+                      {renderError('businessDirections')}
                     </div>
 
                     <div className="space-y-2">

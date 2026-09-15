@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect, useMemo, useState } from 'react';
+import { use, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -27,14 +27,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -45,9 +37,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { SearchableMultiSelect } from '@/components/ui/searchable-multi-select';
 import { cn } from '@/lib/utils';
 import {
   formatEmployeeMoney,
+  invitationStatusLabels,
   getTenderCompletion,
   type EmployeeCriterion,
   type EmployeeMember,
@@ -56,18 +50,20 @@ import {
 } from '@/lib/employee-tender';
 import {
   deleteEmployeeTenderDocument,
-  ensureEmployeeInvitation,
   fetchEmployeeDirectory,
   fetchEmployeeTender,
   fetchEmployeeTenderOptions,
-  publishEmployeeTenderToBackend,
-  saveEmployeeTenderDraftDetails,
+  fetchMyEmployeePermission,
   saveEmployeeTenderToBackend,
+  saveEmployeeTenderCommittee,
   uploadEmployeeTenderDocument,
   type EmployeeDirectoryItem,
+  type EmployeePermission,
   type EmployeeTenderOptions,
 } from '@/lib/api';
 import { getStoredUser } from '@/lib/auth';
+import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
+import { TenderWorkflowPanel } from '@/components/employee/tender-workflow';
 
 const steps = [
   { id: 1, label: 'Үндсэн мэдээлэл', icon: Settings2 },
@@ -96,6 +92,29 @@ const criterionNames: Record<EmployeeCriterion['type'], string> = {
   experience: 'Туршлага',
 };
 
+function hasDraftContent(tender: EmployeeTender) {
+  return Boolean(
+    tender.name.trim() ||
+    tender.tenderType ||
+    tender.purchaseType ||
+    tender.department ||
+    tender.activityIds.length ||
+    tender.budget ||
+    tender.startDate ||
+    tender.endDate ||
+    tender.acceptDate ||
+    tender.openDate ||
+    tender.evaluationDate ||
+    tender.description.trim() ||
+    tender.note.trim() ||
+    tender.batches.length ||
+    tender.requirements.length ||
+    tender.criteria.length ||
+    tender.documents.length ||
+    tender.members.length
+  );
+}
+
 export default function EmployeeTenderEditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
@@ -103,14 +122,36 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [publishOpen, setPublishOpen] = useState(false);
+  const [editable, setEditable] = useState(id === '0');
+  const workflowChanged = useCallback((canEdit: boolean, statusId?: number) => {
+    setEditable(canEdit);
+    if (statusId !== undefined)
+      setTender((current) =>
+        current
+          ? {
+              ...current,
+              invitationStatusId: statusId,
+              status:
+                statusId === 0
+                  ? 'draft'
+                  : statusId === 6
+                    ? 'ready'
+                    : statusId === 1
+                      ? 'published'
+                      : 'closed',
+            }
+          : current
+      );
+  }, []);
   const [loadError, setLoadError] = useState('');
   const [options, setOptions] = useState<EmployeeTenderOptions>({
     tenderTypes: [],
     purchaseTypes: [],
     departments: [],
+    activities: [],
   });
   const [employees, setEmployees] = useState<EmployeeDirectoryItem[]>([]);
+  const [permission, setPermission] = useState<EmployeePermission | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [batchDraft, setBatchDraft] = useState({ code: '', name: '' });
   const [requirementDraft, setRequirementDraft] = useState<{
@@ -128,13 +169,28 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
     employeeId: '',
     role: 'member' as EmployeeMember['role'],
   });
+  const unsavedChanges = useUnsavedChanges(
+    Boolean(
+      batchDraft.code ||
+      batchDraft.name ||
+      requirementDraft.name ||
+      criterionDraft.name ||
+      criterionDraft.weight ||
+      memberDraft.employeeId
+    )
+  );
 
   useEffect(() => {
     const invitationId = Number(id);
-    void Promise.all([fetchEmployeeTenderOptions(), fetchEmployeeDirectory()])
-      .then(([tenderOptions, employeeRows]) => {
+    void Promise.all([
+      fetchEmployeeTenderOptions(),
+      fetchEmployeeDirectory(),
+      fetchMyEmployeePermission(),
+    ])
+      .then(([tenderOptions, employeeRows, currentPermission]) => {
         setOptions(tenderOptions);
         setEmployees(employeeRows);
+        setPermission(currentPermission);
       })
       .catch((requestError) =>
         setLoadError(
@@ -148,12 +204,13 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
         id: '0',
         tenderId: 0,
         invitationId: 0,
-        tenderCode: 'Backend үүсгэнэ',
-        invitationCode: 'Backend үүсгэнэ',
+        tenderCode: 'Систем үүсгэнэ',
+        invitationCode: 'Систем үүсгэнэ',
         name: '',
         tenderType: '',
         purchaseType: '',
         department: '',
+        activityIds: [],
         budget: 0,
         publishDate: now.toISOString().slice(0, 10),
         startDate: '',
@@ -183,6 +240,9 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
       );
   }, [id]);
   const completion = useMemo(() => (tender ? getTenderCompletion(tender) : null), [tender]);
+  const canManageTender = Boolean(permission?.isAdmin || permission?.isTenderManage);
+  const canManageCommittee = Boolean(permission?.isAdmin || permission?.isCommitteeManage);
+  const canEditCurrentSection = editable && (step === 6 ? canManageCommittee : canManageTender);
   const criteriaWeight = tender?.criteria.reduce((sum, item) => sum + item.weight, 0) ?? 0;
   const committeeEmployees = useMemo(() => {
     const normalized = employeeQuery.trim().toLowerCase();
@@ -211,6 +271,7 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
   }
 
   const update = <K extends keyof EmployeeTender>(key: K, value: EmployeeTender[K]) => {
+    unsavedChanges.current = true;
     setTender((current) => (current ? { ...current, [key]: value } : current));
     setErrors((current) => {
       const next = { ...current };
@@ -227,6 +288,7 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
       if (!tender.tenderType) next.tenderType = 'Тендерийн төрлийг сонгоно уу.';
       if (!tender.purchaseType) next.purchaseType = 'Худалдан авалтын төрлийг сонгоно уу.';
       if (!tender.department) next.department = 'Хариуцсан нэгжийг сонгоно уу.';
+      if (!tender.activityIds.length) next.activityIds = 'Үйл ажиллагааны чиглэлийг сонгоно уу.';
       if (!tender.budget) next.budget = 'Төсөвт өртгийг оруулна уу.';
     }
     if (step === 2) {
@@ -260,6 +322,38 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
   };
 
   const saveDraft = async (quiet = false) => {
+    if (!editable) return null;
+    if (step === 6 && canManageCommittee && !canManageTender) {
+      if (!tender.invitationId) {
+        setLoadError('Хороо бүрдүүлэхийн өмнө тендерийн ноорог үүссэн байх шаардлагатай.');
+        return null;
+      }
+      setSaving(true);
+      setLoadError('');
+      try {
+        await saveEmployeeTenderCommittee(tender.invitationId, tender.members);
+        const updated = { ...tender, updatedAt: new Date().toISOString() };
+        setTender(updated);
+        unsavedChanges.current = false;
+        setSaved(true);
+        if (!quiet) window.setTimeout(() => setSaved(false), 2200);
+        return updated;
+      } catch (requestError) {
+        setLoadError(
+          requestError instanceof Error
+            ? requestError.message
+            : 'Үнэлгээний хороог хадгалж чадсангүй.'
+        );
+        return null;
+      } finally {
+        setSaving(false);
+      }
+    }
+    if (!canManageTender) return null;
+    if (tender.tenderId === 0 && !hasDraftContent(tender)) {
+      setLoadError('Ноорог үүсгэхийн тулд багадаа нэг талбарт мэдээлэл оруулна уу.');
+      return null;
+    }
     setSaving(true);
     setLoadError('');
     try {
@@ -270,19 +364,15 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
           : currentCompletion.percent === 100
             ? 'ready'
             : 'draft';
-      const tenderId = await saveEmployeeTenderToBackend({ ...tender, status: nextStatus });
-      const invitation = await ensureEmployeeInvitation(
-        tenderId,
-        tender.createdBy,
-        tender.invitationId
-      );
+      const invitation = await saveEmployeeTenderToBackend({ ...tender, status: nextStatus });
+      const tenderId = invitation.tenderid;
       const draftTender = {
         ...tender,
         tenderId,
         invitationId: invitation.invitationid,
+        requirements: invitation.requirements,
         status: nextStatus,
       };
-      await saveEmployeeTenderDraftDetails(draftTender);
       let documents = tender.documents;
       for (const document of tender.documents.filter((item) => item.file)) {
         const uploaded = await uploadEmployeeTenderDocument({
@@ -305,6 +395,7 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
         updatedAt: new Date().toISOString(),
       };
       setTender(result);
+      unsavedChanges.current = false;
       setSaving(false);
       setSaved(true);
       if (id === '0') router.replace(`/employee/tenders/${invitation.invitationid}`);
@@ -315,19 +406,16 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
       setLoadError(
         requestError instanceof Error ? requestError.message : 'Тендер хадгалагдсангүй.'
       );
-      throw requestError;
+      return null;
     }
   };
 
   const goNext = async () => {
     if (!validateCurrentStep()) return;
-    try {
-      await saveDraft(true);
-      setStep((current) => Math.min(current + 1, 7));
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    } catch {
-      return;
-    }
+    const savedTender = await saveDraft(true);
+    if (!savedTender) return;
+    setStep((current) => Math.min(current + 1, 7));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const addBatch = () => {
@@ -413,20 +501,6 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
     setMemberDraft({ employeeId: '', role: 'member' });
     setEmployeeQuery('');
   };
-  const publish = async () => {
-    try {
-      const savedTender = await saveDraft(true);
-      await publishEmployeeTenderToBackend(savedTender);
-      setTender({
-        ...savedTender,
-        status: 'published',
-        publishDate: savedTender.publishDate || new Date().toISOString().slice(0, 10),
-      });
-      setPublishOpen(false);
-    } catch {
-      setPublishOpen(false);
-    }
-  };
 
   return (
     <div className="p-6 lg:p-8">
@@ -442,13 +516,14 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
             </Link>
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <Badge variant="secondary">
-                {tender.status === 'draft'
-                  ? 'Ноорог'
-                  : tender.status === 'ready'
-                    ? 'Нийтлэхэд бэлэн'
-                    : tender.status === 'published'
-                      ? 'Нийтэлсэн'
-                      : 'Хаагдсан'}
+                {invitationStatusLabels[tender.invitationStatusId ?? -1] ??
+                  (tender.status === 'draft'
+                    ? 'Ноорог'
+                    : tender.status === 'ready'
+                      ? 'Нийтлэхэд бэлэн'
+                      : tender.status === 'published'
+                        ? 'Нийтэлсэн'
+                        : 'Хаагдсан')}
               </Badge>
               <span className="text-sm font-medium text-slate-500">{tender.tenderCode}</span>
               <span className="text-xs text-slate-400">{tender.invitationCode}</span>
@@ -470,7 +545,11 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
               <CheckCircle2 className="mr-1 inline h-4 w-4" />
               Backend-д хадгаллаа
             </span>
-            <Button variant="outline" onClick={() => void saveDraft()} disabled={saving}>
+            <Button
+              variant="outline"
+              onClick={() => void saveDraft()}
+              disabled={saving || !canEditCurrentSection}
+            >
               {saving ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
@@ -485,6 +564,13 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
           <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
             {loadError}
           </div>
+        )}
+        {tender.invitationId > 0 && (
+          <TenderWorkflowPanel
+            invitationId={tender.invitationId}
+            onStateChange={workflowChanged}
+            hasUnsavedChanges={unsavedChanges.current || saving}
+          />
         )}
         <div className="grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
           <aside className="h-fit rounded-2xl border border-slate-200 bg-white p-3 shadow-sm xl:sticky xl:top-6">
@@ -541,595 +627,600 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
           </aside>
 
           <main>
-            {step === 1 && (
-              <Section
-                title="Үндсэн мэдээлэл"
-                description="TBLTENDER хүснэгтийн үндсэн талбаруудыг бөглөнө."
-              >
-                <div className="grid gap-5 sm:grid-cols-2">
-                  <Field label="Тендерийн нэр" error={errors.name} wide>
-                    <Input
-                      value={tender.name}
-                      onChange={(event) => update('name', event.target.value)}
-                      placeholder="Тендерийн нэр"
-                    />
-                  </Field>
-                  <Field label="Тендерийн код">
-                    <Input value={tender.tenderCode} readOnly className="bg-slate-50" />
-                  </Field>
-                  <Field label="Урилгын код">
-                    <Input value={tender.invitationCode} readOnly className="bg-slate-50" />
-                  </Field>
-                  <Field label="Тендерийн төрөл" error={errors.tenderType}>
-                    <Select
-                      value={tender.tenderType}
-                      onValueChange={(value) => update('tenderType', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Сонгох" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {options.tenderTypes.map((item) => (
-                          <SelectItem key={item.tendertypeid} value={item.tendertypename}>
-                            {item.tendertypename}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="Худалдан авалтын төрөл" error={errors.purchaseType}>
-                    <Select
-                      value={tender.purchaseType}
-                      onValueChange={(value) => update('purchaseType', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Сонгох" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {options.purchaseTypes.map((item) => (
-                          <SelectItem key={item.purchasetypeid} value={item.purchasetypename}>
-                            {item.purchasetypename}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="Хариуцсан нэгж" error={errors.department}>
-                    <Select
-                      value={tender.department}
-                      onValueChange={(value) => update('department', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Сонгох" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {options.departments.map((item) => (
-                          <SelectItem key={item.departmentid} value={item.departmentname}>
-                            {item.departmentname}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field label="Төсөвт өртөг (₮)" error={errors.budget}>
-                    <Input
-                      type="number"
-                      min="0"
-                      value={tender.budget || ''}
-                      onChange={(event) => update('budget', Number(event.target.value))}
-                      placeholder="0"
-                    />
-                    <p className="text-xs font-medium text-orange-600">
-                      {formatEmployeeMoney(tender.budget)}
-                    </p>
-                  </Field>
-                  <Field label="Тайлбар" wide>
-                    <Textarea
-                      value={tender.description}
-                      onChange={(event) => update('description', event.target.value)}
-                      placeholder="Тендерийн зорилго, хамрах хүрээ..."
-                      className="min-h-28"
-                    />
-                  </Field>
-                </div>
-              </Section>
-            )}
+            <fieldset disabled={!canEditCurrentSection || saving} className="min-w-0">
+              {step === 1 && (
+                <Section title="Үндсэн мэдээлэл" description="">
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <Field label="Тендерийн нэр" error={errors.name} wide>
+                      <Input
+                        value={tender.name}
+                        onChange={(event) => update('name', event.target.value)}
+                        placeholder="Тендерийн нэр"
+                      />
+                    </Field>
+                    <Field label="Тендерийн код">
+                      <Input value={tender.tenderCode} readOnly className="bg-slate-50" />
+                    </Field>
+                    <Field label="Урилгын код">
+                      <Input value={tender.invitationCode} readOnly className="bg-slate-50" />
+                    </Field>
+                    <Field label="Тендерийн төрөл" error={errors.tenderType}>
+                      <Select
+                        value={tender.tenderType}
+                        onValueChange={(value) => update('tenderType', value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Сонгох" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {options.tenderTypes.map((item) => (
+                            <SelectItem key={item.tendertypeid} value={item.tendertypename}>
+                              {item.tendertypename}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label="Худалдан авалтын төрөл" error={errors.purchaseType}>
+                      <Select
+                        value={tender.purchaseType}
+                        onValueChange={(value) => update('purchaseType', value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Сонгох" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {options.purchaseTypes.map((item) => (
+                            <SelectItem key={item.purchasetypeid} value={item.purchasetypename}>
+                              {item.purchasetypename}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label="Хариуцсан нэгж" error={errors.department}>
+                      <Select
+                        value={tender.department}
+                        onValueChange={(value) => update('department', value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Сонгох" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {options.departments.map((item) => (
+                            <SelectItem key={item.departmentid} value={item.departmentname}>
+                              {item.departmentname}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label="Үйл ажиллагааны чиглэл" error={errors.activityIds}>
+                      <SearchableMultiSelect
+                        value={tender.activityIds.map(String)}
+                        options={options.activities.map((activity) => ({
+                          value: String(activity.activityid),
+                          label: activity.activity,
+                        }))}
+                        onValueChange={(value) => update('activityIds', value.map(Number))}
+                        placeholder="Чиглэл сонгох..."
+                        searchPlaceholder="Чиглэл хайх..."
+                        emptyMessage="Үйл ажиллагааны чиглэл олдсонгүй."
+                        invalid={Boolean(errors.activityIds)}
+                      />
+                    </Field>
+                    <Field label="Төсөвт өртөг (₮)" error={errors.budget}>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={tender.budget || ''}
+                        onChange={(event) => update('budget', Number(event.target.value))}
+                        placeholder="0"
+                      />
+                      <p className="text-xs font-medium text-orange-600">
+                        {formatEmployeeMoney(tender.budget)}
+                      </p>
+                    </Field>
+                    <Field label="Тайлбар" wide>
+                      <Textarea
+                        value={tender.description}
+                        onChange={(event) => update('description', event.target.value)}
+                        placeholder="Тендерийн зорилго, хамрах хүрээ..."
+                        className="min-h-28"
+                      />
+                    </Field>
+                  </div>
+                </Section>
+              )}
 
-            {step === 2 && (
-              <Section
-                title="Урилга болон хугацаа"
-                description="Санал хүлээн авах, нээх, үнэлэх хугацааг дарааллаар тохируулна."
-              >
-                <div className="grid gap-5 sm:grid-cols-2">
-                  <Field label="Гэрээ эхлэх огноо" error={errors.startDate}>
-                    <Input
-                      type="date"
-                      value={tender.startDate}
-                      onChange={(event) => update('startDate', event.target.value)}
-                    />
-                  </Field>
-                  <Field label="Гэрээ дуусах огноо" error={errors.endDate}>
-                    <Input
-                      type="date"
-                      value={tender.endDate}
-                      onChange={(event) => update('endDate', event.target.value)}
-                    />
-                  </Field>
-                  <Field label="Санал хүлээн авах эцсийн хугацаа" error={errors.acceptDate}>
-                    <Input
-                      type="datetime-local"
-                      value={tender.acceptDate}
-                      onChange={(event) => update('acceptDate', event.target.value)}
-                    />
-                  </Field>
-                  <Field label="Санал нээх хугацаа" error={errors.openDate}>
-                    <Input
-                      type="datetime-local"
-                      value={tender.openDate}
-                      onChange={(event) => update('openDate', event.target.value)}
-                    />
-                  </Field>
-                  <Field label="Үнэлгээ дуусах огноо" error={errors.evaluationDate}>
-                    <Input
-                      type="date"
-                      value={tender.evaluationDate}
-                      onChange={(event) => update('evaluationDate', event.target.value)}
-                    />
-                  </Field>
-                  <Field label="Урилгын тэмдэглэл">
-                    <Input
-                      value={tender.note}
-                      onChange={(event) => update('note', event.target.value)}
-                      placeholder="Нэмэлт нөхцөл"
-                    />
-                  </Field>
-                </div>
-                <div className="mt-6 flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
-                  <CalendarClock className="mt-0.5 h-5 w-5 shrink-0" />
-                  <p>
-                    Backend-ийн урсгалаар санал нээх хугацаа нь санал хүлээн авах эцсийн хугацаанаас
-                    хойш байна.
-                  </p>
-                </div>
-              </Section>
-            )}
-
-            {step === 3 && (
-              <Section
-                title="Тендерийн багц"
-                description="TBLTENDERBATCH-т хадгалагдах багцууд. Нийлүүлэгч багц тус бүрээр үнийн санал өгнө."
-              >
-                <div className="grid gap-3 sm:grid-cols-[180px_1fr_auto]">
-                  <Input
-                    value={batchDraft.code}
-                    onChange={(event) =>
-                      setBatchDraft((current) => ({ ...current, code: event.target.value }))
-                    }
-                    placeholder="БАГЦ-01"
-                  />
-                  <Input
-                    value={batchDraft.name}
-                    onChange={(event) =>
-                      setBatchDraft((current) => ({ ...current, name: event.target.value }))
-                    }
-                    placeholder="Багцын нэр"
-                  />
-                  <Button
-                    type="button"
-                    onClick={addBatch}
-                    className="bg-orange-500 hover:bg-orange-600"
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Нэмэх
-                  </Button>
-                </div>
-                {errors.batches && <ErrorText>{errors.batches}</ErrorText>}
-                <div className="mt-5 space-y-3">
-                  {tender.batches.map((batch) => (
-                    <Row
-                      key={batch.id}
-                      title={batch.name}
-                      meta={batch.code}
-                      onDelete={() =>
-                        update(
-                          'batches',
-                          tender.batches.filter((item) => item.id !== batch.id)
-                        )
-                      }
-                    />
-                  ))}
-                </div>
-              </Section>
-            )}
-
-            {step === 4 && (
-              <div className="space-y-6">
+              {step === 2 && (
                 <Section
-                  title="Тавигдах шаардлага"
-                  description="Нийлүүлэгчийн хангах ерөнхий, техникийн болон санхүүгийн шаардлагууд."
+                  title="Урилга болон хугацаа"
+                  description="Санал хүлээн авах, нээх, үнэлэх хугацааг дарааллаар тохируулна."
                 >
-                  <div className="grid gap-3 lg:grid-cols-[1fr_180px_180px_auto]">
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <Field label="Гэрээ эхлэх огноо" error={errors.startDate}>
+                      <Input
+                        type="date"
+                        value={tender.startDate}
+                        onChange={(event) => update('startDate', event.target.value)}
+                      />
+                    </Field>
+                    <Field label="Гэрээ дуусах огноо" error={errors.endDate}>
+                      <Input
+                        type="date"
+                        value={tender.endDate}
+                        onChange={(event) => update('endDate', event.target.value)}
+                      />
+                    </Field>
+                    <Field label="Санал хүлээн авах эцсийн хугацаа" error={errors.acceptDate}>
+                      <Input
+                        type="datetime-local"
+                        value={tender.acceptDate}
+                        onChange={(event) => update('acceptDate', event.target.value)}
+                      />
+                    </Field>
+                    <Field label="Санал нээх хугацаа" error={errors.openDate}>
+                      <Input
+                        type="datetime-local"
+                        value={tender.openDate}
+                        onChange={(event) => update('openDate', event.target.value)}
+                      />
+                    </Field>
+                    <Field label="Үнэлгээ дуусах огноо" error={errors.evaluationDate}>
+                      <Input
+                        type="date"
+                        value={tender.evaluationDate}
+                        onChange={(event) => update('evaluationDate', event.target.value)}
+                      />
+                    </Field>
+                    <Field label="Урилгын тэмдэглэл">
+                      <Input
+                        value={tender.note}
+                        onChange={(event) => update('note', event.target.value)}
+                        placeholder="Нэмэлт нөхцөл"
+                      />
+                    </Field>
+                  </div>
+                  <div className="mt-6 flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
+                    <CalendarClock className="mt-0.5 h-5 w-5 shrink-0" />
+                    <p>Санал нээх хугацаа нь санал хүлээн авах эцсийн хугацаанаас хойш байна.</p>
+                  </div>
+                </Section>
+              )}
+
+              {step === 3 && (
+                <Section
+                  title="Тендерийн багц"
+                  description=" Нийлүүлэгч багц тус бүрээр үнийн санал өгнө."
+                >
+                  <div className="grid gap-3 sm:grid-cols-[180px_1fr_auto]">
                     <Input
-                      value={requirementDraft.name}
+                      value={batchDraft.code}
                       onChange={(event) =>
-                        setRequirementDraft((current) => ({ ...current, name: event.target.value }))
+                        setBatchDraft((current) => ({ ...current, code: event.target.value }))
                       }
-                      placeholder="Шаардлагын нэр"
+                      placeholder="БАГЦ-01"
                     />
-                    <Select
-                      value={requirementDraft.type}
-                      onValueChange={(value: EmployeeRequirement['type']) =>
-                        setRequirementDraft((current) => ({ ...current, type: value }))
+                    <Input
+                      value={batchDraft.name}
+                      onChange={(event) =>
+                        setBatchDraft((current) => ({ ...current, name: event.target.value }))
                       }
+                      placeholder="Багцын нэр"
+                    />
+                    <Button
+                      type="button"
+                      onClick={addBatch}
+                      className="bg-orange-500 hover:bg-orange-600"
                     >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="general">Ерөнхий</SelectItem>
-                        <SelectItem value="technical">Техникийн</SelectItem>
-                        <SelectItem value="financial">Санхүүгийн</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm">
-                      <Checkbox
-                        checked={requirementDraft.documentRequired}
-                        onCheckedChange={(checked) =>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Нэмэх
+                    </Button>
+                  </div>
+                  {errors.batches && <ErrorText>{errors.batches}</ErrorText>}
+                  <div className="mt-5 space-y-3">
+                    {tender.batches.map((batch) => (
+                      <Row
+                        key={batch.id}
+                        title={batch.name}
+                        meta={batch.code}
+                        onDelete={() =>
+                          update(
+                            'batches',
+                            tender.batches.filter((item) => item.id !== batch.id)
+                          )
+                        }
+                      />
+                    ))}
+                  </div>
+                </Section>
+              )}
+
+              {step === 4 && (
+                <div className="space-y-6">
+                  <Section
+                    title="Тавигдах шаардлага"
+                    description="Нийлүүлэгчийн хангах ерөнхий, техникийн болон санхүүгийн шаардлагууд."
+                  >
+                    <div className="grid gap-3 lg:grid-cols-[1fr_180px_180px_auto]">
+                      <Input
+                        value={requirementDraft.name}
+                        onChange={(event) =>
                           setRequirementDraft((current) => ({
                             ...current,
-                            documentRequired: checked === true,
+                            name: event.target.value,
                           }))
                         }
+                        placeholder="Шаардлагын нэр"
                       />
-                      Баримт шаардах
-                    </label>
-                    <Button type="button" onClick={addRequirement}>
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  {errors.requirements && <ErrorText>{errors.requirements}</ErrorText>}
-                  <div className="mt-4 space-y-2">
-                    {tender.requirements.map((item) => (
-                      <Row
-                        key={item.id}
-                        title={item.name}
-                        meta={`${requirementNames[item.type]}${item.documentRequired ? ' • Баримттай' : ''}`}
-                        onDelete={() =>
-                          update(
-                            'requirements',
-                            tender.requirements.filter((value) => value.id !== item.id)
-                          )
+                      <Select
+                        value={requirementDraft.type}
+                        onValueChange={(value: EmployeeRequirement['type']) =>
+                          setRequirementDraft((current) => ({ ...current, type: value }))
                         }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="general">Ерөнхий</SelectItem>
+                          <SelectItem value="technical">Техникийн</SelectItem>
+                          <SelectItem value="financial">Санхүүгийн</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm">
+                        <Checkbox
+                          checked={requirementDraft.documentRequired}
+                          onCheckedChange={(checked) =>
+                            setRequirementDraft((current) => ({
+                              ...current,
+                              documentRequired: checked === true,
+                            }))
+                          }
+                        />
+                        Баримт шаардах
+                      </label>
+                      <Button type="button" onClick={addRequirement}>
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    {errors.requirements && <ErrorText>{errors.requirements}</ErrorText>}
+                    <div className="mt-4 space-y-2">
+                      {tender.requirements.map((item) => (
+                        <Row
+                          key={item.id}
+                          title={item.name}
+                          meta={`${requirementNames[item.type]}${item.documentRequired ? ' • Баримттай' : ''}`}
+                          onDelete={() =>
+                            update(
+                              'requirements',
+                              tender.requirements.filter((value) => value.id !== item.id)
+                            )
+                          }
+                        />
+                      ))}
+                    </div>
+                  </Section>
+                  <Section
+                    title="Үнэлгээний шалгуур"
+                    description={`Нийт жин заавал 100% байна. Одоогийн нийлбэр: ${criteriaWeight}%`}
+                  >
+                    <div className="grid gap-3 lg:grid-cols-[1fr_180px_120px_auto]">
+                      <Input
+                        value={criterionDraft.name}
+                        onChange={(event) =>
+                          setCriterionDraft((current) => ({ ...current, name: event.target.value }))
+                        }
+                        placeholder="Шалгуурын нэр"
+                      />
+                      <Select
+                        value={criterionDraft.type}
+                        onValueChange={(value: EmployeeCriterion['type']) =>
+                          setCriterionDraft((current) => ({ ...current, type: value }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="technical">Техникийн</SelectItem>
+                          <SelectItem value="financial">Санхүүгийн</SelectItem>
+                          <SelectItem value="experience">Туршлага</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={criterionDraft.weight}
+                        onChange={(event) =>
+                          setCriterionDraft((current) => ({
+                            ...current,
+                            weight: event.target.value,
+                          }))
+                        }
+                        placeholder="Жин %"
+                      />
+                      <Button type="button" onClick={addCriterion}>
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    {errors.criteria && <ErrorText>{errors.criteria}</ErrorText>}
+                    <div className="mt-4 space-y-2">
+                      {tender.criteria.map((item) => (
+                        <Row
+                          key={item.id}
+                          title={item.name}
+                          meta={`${criterionNames[item.type]} • ${item.weight}%`}
+                          onDelete={() =>
+                            update(
+                              'criteria',
+                              tender.criteria.filter((value) => value.id !== item.id)
+                            )
+                          }
+                        />
+                      ))}
+                    </div>
+                    <div className="mt-4 h-2 rounded-full bg-slate-100">
+                      <div
+                        className={cn(
+                          'h-full rounded-full',
+                          criteriaWeight === 100
+                            ? 'bg-emerald-500'
+                            : criteriaWeight > 100
+                              ? 'bg-red-500'
+                              : 'bg-orange-500'
+                        )}
+                        style={{ width: `${Math.min(criteriaWeight, 100)}%` }}
+                      />
+                    </div>
+                  </Section>
+                </div>
+              )}
+
+              {step === 5 && (
+                <Section
+                  title="Тендерийн баримт бичиг"
+                  description="Техникийн тодорхойлолт, маягт болон гэрээний төслийг хавсаргана."
+                >
+                  <label className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-10 text-center hover:border-orange-300">
+                    <Upload className="mx-auto h-9 w-9 text-slate-400" />
+                    <p className="mt-3 text-sm font-medium text-slate-700">
+                      Файл сонгох эсвэл энд чирж оруулах
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      PDF, DOCX, XLSX файлыг backend storage-д хадгална
+                    </p>
+                    <input
+                      type="file"
+                      multiple
+                      accept=".pdf,.doc,.docx,.xls,.xlsx"
+                      className="hidden"
+                      onChange={uploadDocuments}
+                    />
+                  </label>
+                  {errors.documents && <ErrorText>{errors.documents}</ErrorText>}
+                  <div className="mt-5 space-y-3">
+                    {tender.documents.map((document) => (
+                      <Row
+                        key={document.id}
+                        title={document.name}
+                        meta={`${document.type.toUpperCase()} • ${document.size}`}
+                        icon={<FileText className="h-5 w-5 text-orange-500" />}
+                        onDelete={() => void removeDocument(document)}
                       />
                     ))}
                   </div>
                 </Section>
+              )}
+
+              {step === 6 && (
                 <Section
-                  title="Үнэлгээний шалгуур"
-                  description={`Нийт жин заавал 100% байна. Одоогийн нийлбэр: ${criteriaWeight}%`}
+                  title="Үнэлгээний хороо"
+                  description="Нээх дараалал: Нарийн бичиг → Дарга → Дотоод хяналт."
                 >
-                  <div className="grid gap-3 lg:grid-cols-[1fr_180px_120px_auto]">
-                    <Input
-                      value={criterionDraft.name}
-                      onChange={(event) =>
-                        setCriterionDraft((current) => ({ ...current, name: event.target.value }))
-                      }
-                      placeholder="Шалгуурын нэр"
-                    />
+                  {!canManageCommittee && (
+                    <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                      Үнэлгээний хороо бүрдүүлэх эрхгүй тул энэ хэсгийг зөвхөн харах боломжтой.
+                    </p>
+                  )}
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
+                    <div className="space-y-2">
+                      <Input
+                        value={employeeQuery}
+                        onChange={(event) => setEmployeeQuery(event.target.value)}
+                        placeholder="Ажилтны нэр, имэйл эсвэл ID-аар хайх"
+                      />
+                      <Select
+                        value={memberDraft.employeeId}
+                        onValueChange={(value) => {
+                          setMemberDraft((current) => ({ ...current, employeeId: value }));
+                          const employee = employees.find((item) => String(item.empid) === value);
+                          if (employee)
+                            setEmployeeQuery(employee.empname || String(employee.empid));
+                        }}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Ажилтан сонгох" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {committeeEmployees.map((employee) => (
+                            <SelectItem key={employee.empid} value={String(employee.empid)}>
+                              {employee.empname || `Ажилтан #${employee.empid}`} —{' '}
+                              {employee.positionname || 'Албан тушаалгүй'}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <Select
-                      value={criterionDraft.type}
-                      onValueChange={(value: EmployeeCriterion['type']) =>
-                        setCriterionDraft((current) => ({ ...current, type: value }))
+                      value={memberDraft.role}
+                      onValueChange={(value: EmployeeMember['role']) =>
+                        setMemberDraft((current) => ({ ...current, role: value }))
                       }
                     >
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="technical">Техникийн</SelectItem>
-                        <SelectItem value="financial">Санхүүгийн</SelectItem>
-                        <SelectItem value="experience">Туршлага</SelectItem>
+                        <SelectItem value="secretary">Нарийн бичиг</SelectItem>
+                        <SelectItem value="chair">Дарга</SelectItem>
+                        <SelectItem value="member">Гишүүн</SelectItem>
+                        <SelectItem value="internal-control">Дотоод хяналт</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Input
-                      type="number"
-                      min="1"
-                      max="100"
-                      value={criterionDraft.weight}
-                      onChange={(event) =>
-                        setCriterionDraft((current) => ({ ...current, weight: event.target.value }))
-                      }
-                      placeholder="Жин %"
-                    />
-                    <Button type="button" onClick={addCriterion}>
-                      <Plus className="h-4 w-4" />
+                    <Button
+                      type="button"
+                      onClick={addMember}
+                      className="bg-orange-500 hover:bg-orange-600"
+                      disabled={!memberDraft.employeeId}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Нэмэх
                     </Button>
                   </div>
-                  {errors.criteria && <ErrorText>{errors.criteria}</ErrorText>}
-                  <div className="mt-4 space-y-2">
-                    {tender.criteria.map((item) => (
-                      <Row
-                        key={item.id}
-                        title={item.name}
-                        meta={`${criterionNames[item.type]} • ${item.weight}%`}
-                        onDelete={() =>
-                          update(
-                            'criteria',
-                            tender.criteria.filter((value) => value.id !== item.id)
-                          )
-                        }
-                      />
+                  {!employees.length && (
+                    <ErrorText>TBLEMP хүснэгтэд сонгох ажилтан бүртгэгдээгүй байна.</ErrorText>
+                  )}
+                  {employeeQuery.trim().length > 1 && !committeeEmployees.length && (
+                    <ErrorText>Тохирох ажилтан олдсонгүй.</ErrorText>
+                  )}
+                  {errors.members && <ErrorText>{errors.members}</ErrorText>}
+                  <div className="mt-5 grid gap-3 md:grid-cols-2">
+                    {tender.members.map((member) => (
+                      <div
+                        key={member.id}
+                        className="flex items-start gap-3 rounded-xl border border-slate-200 p-4"
+                      >
+                        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-50 font-bold text-orange-600">
+                          {member.name.slice(0, 1)}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium text-slate-900">{member.name}</p>
+                            <Badge variant="secondary">{roleNames[member.role]}</Badge>
+                          </div>
+                          <p className="mt-1 text-xs text-slate-500">{member.position}</p>
+                          <p className="mt-1 text-xs text-slate-400">
+                            {member.email || `Ажилтны ID: ${member.employeeId}`}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() =>
+                            update(
+                              'members',
+                              tender.members.filter((item) => item.id !== member.id)
+                            )
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     ))}
                   </div>
-                  <div className="mt-4 h-2 rounded-full bg-slate-100">
-                    <div
-                      className={cn(
-                        'h-full rounded-full',
-                        criteriaWeight === 100
-                          ? 'bg-emerald-500'
-                          : criteriaWeight > 100
-                            ? 'bg-red-500'
-                            : 'bg-orange-500'
-                      )}
-                      style={{ width: `${Math.min(criteriaWeight, 100)}%` }}
-                    />
+                </Section>
+              )}
+
+              {step === 7 && (
+                <Section
+                  title="Хянаж нийтлэх"
+                  description="Бүх хэсгийг шалгасны дараа нийлүүлэгчдэд тендерийн урилгыг нийтэлнэ."
+                >
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {steps.slice(0, 6).map((item, index) => {
+                      const done = completion?.checks[index];
+                      const Icon = item.icon;
+                      return (
+                        <button
+                          type="button"
+                          key={item.id}
+                          onClick={() => setStep(item.id)}
+                          className={cn(
+                            'rounded-xl border p-4 text-left',
+                            done
+                              ? 'border-emerald-200 bg-emerald-50/60'
+                              : 'border-amber-200 bg-amber-50/60'
+                          )}
+                        >
+                          <div className="flex items-center justify-between">
+                            <Icon
+                              className={cn(
+                                'h-5 w-5',
+                                done ? 'text-emerald-600' : 'text-amber-600'
+                              )}
+                            />
+                            {done ? (
+                              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                            ) : (
+                              <AlertCircle className="h-5 w-5 text-amber-600" />
+                            )}
+                          </div>
+                          <p className="mt-3 font-medium text-slate-900">{item.label}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {done ? 'Бүрэн' : 'Мэдээлэл дутуу'}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-5">
+                    <dl className="grid gap-4 text-sm sm:grid-cols-2">
+                      <Summary label="Тендер" value={tender.name || '—'} />
+                      <Summary label="Код" value={tender.tenderCode} />
+                      <Summary label="Төсөв" value={formatEmployeeMoney(tender.budget)} />
+                      <Summary
+                        label="Санал хүлээн авах"
+                        value={tender.acceptDate.replace('T', ' ') || '—'}
+                      />
+                      <Summary label="Багц" value={`${tender.batches.length}`} />
+                      <Summary label="Шалгуурын жин" value={`${criteriaWeight}%`} />
+                    </dl>
+                  </div>
+                  <div className="mt-6 flex items-center justify-between gap-4 rounded-xl border border-orange-100 bg-orange-50 p-5">
+                    <div>
+                      <p className="font-semibold text-slate-900">
+                        Мэдээллээ хадгалаад дээрх “Нийтлэх хүсэлт илгээх” үйлдлийг сонгоно уу.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      disabled={
+                        completion?.percent !== 100 || !canManageTender || !editable || saving
+                      }
+                      onClick={() => void saveDraft()}
+                      className="shrink-0 bg-orange-500 hover:bg-orange-600"
+                    >
+                      <Send className="mr-2 h-4 w-4" />
+                      Хадгалах
+                    </Button>
                   </div>
                 </Section>
-              </div>
-            )}
-
-            {step === 5 && (
-              <Section
-                title="Тендерийн баримт бичиг"
-                description="Техникийн тодорхойлолт, маягт болон гэрээний төслийг хавсаргана."
-              >
-                <label className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-10 text-center hover:border-orange-300">
-                  <Upload className="mx-auto h-9 w-9 text-slate-400" />
-                  <p className="mt-3 text-sm font-medium text-slate-700">
-                    Файл сонгох эсвэл энд чирж оруулах
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    PDF, DOCX, XLSX файлыг backend storage-д хадгална
-                  </p>
-                  <input
-                    type="file"
-                    multiple
-                    accept=".pdf,.doc,.docx,.xls,.xlsx"
-                    className="hidden"
-                    onChange={uploadDocuments}
-                  />
-                </label>
-                {errors.documents && <ErrorText>{errors.documents}</ErrorText>}
-                <div className="mt-5 space-y-3">
-                  {tender.documents.map((document) => (
-                    <Row
-                      key={document.id}
-                      title={document.name}
-                      meta={`${document.type.toUpperCase()} • ${document.size}`}
-                      icon={<FileText className="h-5 w-5 text-orange-500" />}
-                      onDelete={() => void removeDocument(document)}
-                    />
-                  ))}
-                </div>
-              </Section>
-            )}
-
-            {step === 6 && (
-              <Section
-                title="Үнэлгээний хороо"
-                description="Backend-ийн нээх дараалал: Нарийн бичиг → Дарга → Дотоод хяналт."
-              >
-                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
-                  <div className="space-y-2">
-                    <Input
-                      value={employeeQuery}
-                      onChange={(event) => setEmployeeQuery(event.target.value)}
-                      placeholder="Ажилтны нэр, имэйл эсвэл ID-аар хайх"
-                    />
-                    <Select
-                      value={memberDraft.employeeId}
-                      onValueChange={(value) => {
-                        setMemberDraft((current) => ({ ...current, employeeId: value }));
-                        const employee = employees.find((item) => String(item.empid) === value);
-                        if (employee) setEmployeeQuery(employee.empname || String(employee.empid));
-                      }}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Ажилтан сонгох" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {committeeEmployees.map((employee) => (
-                          <SelectItem key={employee.empid} value={String(employee.empid)}>
-                            {employee.empname || `Ажилтан #${employee.empid}`} —{' '}
-                            {employee.positionname || 'Албан тушаалгүй'}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Select
-                    value={memberDraft.role}
-                    onValueChange={(value: EmployeeMember['role']) =>
-                      setMemberDraft((current) => ({ ...current, role: value }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="secretary">Нарийн бичиг</SelectItem>
-                      <SelectItem value="chair">Дарга</SelectItem>
-                      <SelectItem value="member">Гишүүн</SelectItem>
-                      <SelectItem value="internal-control">Дотоод хяналт</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    type="button"
-                    onClick={addMember}
-                    className="bg-orange-500 hover:bg-orange-600"
-                    disabled={!memberDraft.employeeId}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Нэмэх
-                  </Button>
-                </div>
-                {!employees.length && (
-                  <ErrorText>TBLEMP хүснэгтэд сонгох ажилтан бүртгэгдээгүй байна.</ErrorText>
-                )}
-                {employeeQuery.trim().length > 1 && !committeeEmployees.length && (
-                  <ErrorText>Тохирох ажилтан олдсонгүй.</ErrorText>
-                )}
-                {errors.members && <ErrorText>{errors.members}</ErrorText>}
-                <div className="mt-5 grid gap-3 md:grid-cols-2">
-                  {tender.members.map((member) => (
-                    <div
-                      key={member.id}
-                      className="flex items-start gap-3 rounded-xl border border-slate-200 p-4"
-                    >
-                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-50 font-bold text-orange-600">
-                        {member.name.slice(0, 1)}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-medium text-slate-900">{member.name}</p>
-                          <Badge variant="secondary">{roleNames[member.role]}</Badge>
-                        </div>
-                        <p className="mt-1 text-xs text-slate-500">{member.position}</p>
-                        <p className="mt-1 text-xs text-slate-400">
-                          {member.email || `Ажилтны ID: ${member.employeeId}`}
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() =>
-                          update(
-                            'members',
-                            tender.members.filter((item) => item.id !== member.id)
-                          )
-                        }
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </Section>
-            )}
-
-            {step === 7 && (
-              <Section
-                title="Хянаж нийтлэх"
-                description="Бүх хэсгийг шалгасны дараа нийлүүлэгчдэд тендерийн урилгыг нийтэлнэ."
-              >
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {steps.slice(0, 6).map((item, index) => {
-                    const done = completion?.checks[index];
-                    const Icon = item.icon;
-                    return (
-                      <button
-                        type="button"
-                        key={item.id}
-                        onClick={() => setStep(item.id)}
-                        className={cn(
-                          'rounded-xl border p-4 text-left',
-                          done
-                            ? 'border-emerald-200 bg-emerald-50/60'
-                            : 'border-amber-200 bg-amber-50/60'
-                        )}
-                      >
-                        <div className="flex items-center justify-between">
-                          <Icon
-                            className={cn('h-5 w-5', done ? 'text-emerald-600' : 'text-amber-600')}
-                          />
-                          {done ? (
-                            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                          ) : (
-                            <AlertCircle className="h-5 w-5 text-amber-600" />
-                          )}
-                        </div>
-                        <p className="mt-3 font-medium text-slate-900">{item.label}</p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {done ? 'Бүрэн' : 'Мэдээлэл дутуу'}
-                        </p>
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-5">
-                  <dl className="grid gap-4 text-sm sm:grid-cols-2">
-                    <Summary label="Тендер" value={tender.name || '—'} />
-                    <Summary label="Код" value={tender.tenderCode} />
-                    <Summary label="Төсөв" value={formatEmployeeMoney(tender.budget)} />
-                    <Summary
-                      label="Санал хүлээн авах"
-                      value={tender.acceptDate.replace('T', ' ') || '—'}
-                    />
-                    <Summary label="Багц" value={`${tender.batches.length}`} />
-                    <Summary label="Шалгуурын жин" value={`${criteriaWeight}%`} />
-                  </dl>
-                </div>
-                <div className="mt-6 flex items-center justify-between gap-4 rounded-xl border border-orange-100 bg-orange-50 p-5">
-                  <div>
-                    <p className="font-semibold text-slate-900">Нийлүүлэгчдэд нийтлэх</p>
-                    <p className="mt-1 text-sm text-slate-600">
-                      Нийтэлсний дараа тендер Vendor талын нээлттэй жагсаалтад харагдах төлөвт орно.
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    disabled={completion?.percent !== 100 || tender.status === 'published'}
-                    onClick={() => setPublishOpen(true)}
-                    className="shrink-0 bg-orange-500 hover:bg-orange-600"
-                  >
-                    <Send className="mr-2 h-4 w-4" />
-                    {tender.status === 'published' ? 'Нийтэлсэн' : 'Нийтлэх'}
-                  </Button>
-                </div>
-              </Section>
-            )}
-
-            <div className="mt-6 flex justify-between gap-3">
-              <Button
-                variant="outline"
-                disabled={step === 1}
-                onClick={() => setStep((current) => Math.max(current - 1, 1))}
-              >
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Өмнөх
-              </Button>
-              {step < 7 && (
-                <Button onClick={goNext} className="bg-orange-500 hover:bg-orange-600">
-                  Хадгалаад үргэлжлүүлэх
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
               )}
-            </div>
+
+              <div className="mt-6 flex justify-between gap-3">
+                <Button
+                  variant="outline"
+                  disabled={step === 1}
+                  onClick={() => setStep((current) => Math.max(current - 1, 1))}
+                >
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Өмнөх
+                </Button>
+                {step < 7 && (
+                  <Button onClick={goNext} className="bg-orange-500 hover:bg-orange-600">
+                    Хадгалаад үргэлжлүүлэх
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            </fieldset>
           </main>
         </div>
       </div>
-
-      <Dialog open={publishOpen} onOpenChange={setPublishOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Тендерийг нийтлэх үү?</DialogTitle>
-            <DialogDescription>
-              {tender.tenderCode} тендерийн урилга backend мэдээллийн санд нийтлэгдэж,
-              нийлүүлэгчдийн жагсаалтад орно.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPublishOpen(false)}>
-              Цуцлах
-            </Button>
-            <Button onClick={() => void publish()} className="bg-orange-500 hover:bg-orange-600">
-              <Send className="mr-2 h-4 w-4" />
-              Нийтлэх
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { SearchableSelect } from '@/components/ui/searchable-select';
+import { SearchableMultiSelect } from '@/components/ui/searchable-multi-select';
 import {
   Building2,
   CheckCircle,
@@ -29,6 +31,7 @@ import {
 import {
   type CompanyFormData,
   companyStatusOptions,
+  countryValueFromStoredName,
   countryOptions,
   emptyCompanyFormData,
   entityTypeOptions,
@@ -36,7 +39,13 @@ import {
   validateAllCompanyFields,
 } from '@/lib/company-form';
 import { cn } from '@/lib/utils';
-import { fetchVendorProfile, updateVendorProfile, type VendorProfileRecord } from '@/lib/api';
+import {
+  fetchVendorActivities,
+  fetchVendorProfile,
+  updateVendorProfile,
+  type VendorActivity,
+  type VendorProfileRecord,
+} from '@/lib/api';
 import { getStoredUser } from '@/lib/auth';
 
 export default function ProfilePage() {
@@ -46,18 +55,33 @@ export default function ProfilePage() {
   const [vendorRecord, setVendorRecord] = useState<VendorProfileRecord | null>(null);
   const [saveError, setSaveError] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [activities, setActivities] = useState<VendorActivity[]>([]);
 
   useEffect(() => {
     const user = getStoredUser();
     if (!user?.vendorId) return;
-    void fetchVendorProfile(user.vendorId)
-      .then((record) => {
+    void Promise.all([fetchVendorProfile(user.vendorId), fetchVendorActivities()])
+      .then(([record, activityRows]) => {
         setVendorRecord(record);
+        setActivities(activityRows);
         const vendorType = Number(record.vendortypeid ?? 1);
-        const countryName = String(record.countryname ?? '').toLowerCase();
+        const activityName = String(record.activity ?? '')
+          .trim()
+          .toLocaleLowerCase('mn');
+        const storedActivityIds = Array.isArray(record.activityids)
+          ? record.activityids
+              .map((value) => Number(value))
+              .filter((value) => Number.isInteger(value) && value > 0)
+              .map(String)
+          : [];
+        const legacyActivityId = String(
+          activityRows.find(
+            (activity) => activity.activity.trim().toLocaleLowerCase('mn') === activityName
+          )?.activityid ?? ''
+        );
         setProfile({
           entityType: vendorType === 2 ? 'individual' : vendorType === 3 ? 'foreign' : 'company',
-          country: countryName.includes('mongol') ? 'mn' : 'other',
+          country: countryValueFromStoredName(String(record.countryname ?? '')),
           companyName: String(record.vendorname ?? ''),
           registrationNumber: String(record.registernumber ?? ''),
           isVatPayer: Number(record.isvatpayer ?? 0) === 1,
@@ -67,7 +91,12 @@ export default function ProfilePage() {
               : Number(record.vendorstatusid ?? 1) === 3
                 ? 'inactive'
                 : 'active',
-          businessDirection: String(record.activity ?? ''),
+          businessDirections:
+            storedActivityIds.length > 0
+              ? storedActivityIds
+              : legacyActivityId
+                ? [legacyActivityId]
+                : [],
           foundedDate: String(record.establisheddate ?? '').replaceAll('.', '-'),
           companyAddress: String(record.address ?? ''),
           companyPhone: String(record.vendorphone ?? ''),
@@ -132,6 +161,14 @@ export default function ProfilePage() {
     e.preventDefault();
 
     const nextErrors = validateAllCompanyFields(profile);
+    if (
+      !profile.businessDirections.length ||
+      profile.businessDirections.some(
+        (selected) => !activities.some((activity) => String(activity.activityid) === selected)
+      )
+    ) {
+      nextErrors.businessDirections = 'Үйл ажиллагааны чиглэлээ жагсаалтаас сонгоно уу';
+    }
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
       return;
@@ -235,21 +272,17 @@ export default function ProfilePage() {
                     <Label htmlFor="country">
                       Улс<span className="text-red-500">*</span>
                     </Label>
-                    <Select
-                      value={profile.country || undefined}
+                    <SearchableSelect
+                      id="country"
+                      value={profile.country}
+                      options={countryOptions}
                       onValueChange={(value) => updateField('country', value)}
-                    >
-                      <SelectTrigger id="country" className={getSelectClass('country')}>
-                        <SelectValue placeholder="Сонгох..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {countryOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      placeholder="Улс сонгох..."
+                      searchPlaceholder="Улсын нэр эсвэл кодоор хайх..."
+                      emptyMessage="Улс олдсонгүй."
+                      invalid={Boolean(errors.country)}
+                      className={getSelectClass('country')}
+                    />
                     {renderError('country')}
                   </div>
                 </div>
@@ -343,13 +376,22 @@ export default function ProfilePage() {
                     <Label htmlFor="businessDirection">
                       Үйл ажиллагааны чиглэл<span className="text-red-500">*</span>
                     </Label>
-                    <Input
+                    <SearchableMultiSelect
                       id="businessDirection"
-                      value={profile.businessDirection}
-                      onChange={(e) => updateField('businessDirection', e.target.value)}
-                      className={getFieldClass('businessDirection')}
+                      value={profile.businessDirections}
+                      options={activities.map((activity) => ({
+                        value: String(activity.activityid),
+                        label: activity.activity,
+                      }))}
+                      onValueChange={(value) => updateField('businessDirections', value)}
+                      placeholder="Чиглэл сонгох..."
+                      searchPlaceholder="Үйл ажиллагааны чиглэл хайх..."
+                      emptyMessage="Чиглэл олдсонгүй."
+                      disabled={!activities.length}
+                      invalid={Boolean(errors.businessDirections)}
+                      className={getSelectClass('businessDirections')}
                     />
-                    {renderError('businessDirection')}
+                    {renderError('businessDirections')}
                   </div>
 
                   <div className="space-y-2">

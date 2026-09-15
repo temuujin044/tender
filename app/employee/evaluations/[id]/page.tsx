@@ -26,11 +26,13 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
+import { DataPagination } from '@/components/data-pagination';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   fetchEvaluationCriteria,
   fetchEvaluationVendors,
+  fetchMyEmployeePermission,
   fetchTenderDetail,
   saveEvaluationScores,
   type EvaluationCriterion,
@@ -61,6 +63,8 @@ export default function EvaluationDetailPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [vendorPage, setVendorPage] = useState(1);
+  const [vendorPageSize, setVendorPageSize] = useState(8);
   const user = getStoredUser();
   const employeeId = user?.employeeId ?? user?.userId ?? 0;
 
@@ -79,6 +83,10 @@ export default function EvaluationDetailPage() {
 
     const load = async () => {
       try {
+        const permission = await fetchMyEmployeePermission();
+        if (!permission.isAdmin && !permission.isTenderEvaluate) {
+          throw new Error('Үнэлгээ өгөх эрхгүй байна.');
+        }
         const [tenderData, vendorData] = await Promise.all([
           fetchTenderDetail(invitationId),
           fetchEvaluationVendors(invitationId, employeeId),
@@ -152,6 +160,14 @@ export default function EvaluationDetailPage() {
       `${vendor.vendorname ?? ''} ${vendor.vendorid}`.toLowerCase().includes(normalized)
     );
   }, [query, vendors]);
+  const vendorPageCount = Math.max(1, Math.ceil(filteredVendors.length / vendorPageSize));
+  const visibleVendors = useMemo(
+    () => filteredVendors.slice((vendorPage - 1) * vendorPageSize, vendorPage * vendorPageSize),
+    [filteredVendors, vendorPage, vendorPageSize]
+  );
+  useEffect(() => {
+    if (vendorPage > vendorPageCount) setVendorPage(vendorPageCount);
+  }, [vendorPage, vendorPageCount]);
 
   const selectedVendor = vendors.find((vendor) => vendor.vendorid === selectedVendorId);
   const maximumScore = criteria.reduce(
@@ -287,32 +303,54 @@ export default function EvaluationDetailPage() {
                     <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
                     <Input
                       value={query}
-                      onChange={(event) => setQuery(event.target.value)}
+                      onChange={(event) => {
+                        setQuery(event.target.value);
+                        setVendorPage(1);
+                      }}
                       placeholder="Нийлүүлэгч хайх"
                       className="pl-9"
                     />
                   </div>
                 </CardHeader>
-                <CardContent className="max-h-[620px] overflow-y-auto p-2">
+                <CardContent className="p-0">
                   {filteredVendors.length ? (
-                    filteredVendors.map((vendor) => (
-                      <button
-                        key={vendor.vendorid}
-                        type="button"
-                        onClick={() => setSelectedVendorId(vendor.vendorid)}
-                        className={`mb-1 w-full rounded-md px-3 py-3 text-left transition-colors last:mb-0 ${selectedVendorId === vendor.vendorid ? 'bg-orange-50 text-orange-900' : 'hover:bg-slate-50'}`}
-                      >
-                        <p className="truncate text-sm font-medium">
-                          {vendor.vendorname || `Нийлүүлэгч #${vendor.vendorid}`}
-                        </p>
-                        <div className="mt-1 flex items-center justify-between gap-3 text-xs text-slate-500">
-                          <span>{vendor.countdoc ?? 0} баримт</span>
-                          <span className="font-medium tabular-nums">
-                            {Number(vendor.totalpoint ?? 0)} оноо
-                          </span>
-                        </div>
-                      </button>
-                    ))
+                    <>
+                      <div className="max-h-[520px] overflow-y-auto p-2">
+                        {visibleVendors.map((vendor) => (
+                          <button
+                            key={vendor.vendorid}
+                            type="button"
+                            onClick={() => setSelectedVendorId(vendor.vendorid)}
+                            className={`mb-1 w-full rounded-md px-3 py-3 text-left transition-colors last:mb-0 ${selectedVendorId === vendor.vendorid ? 'bg-orange-50 text-orange-900' : 'hover:bg-slate-50'}`}
+                          >
+                            <p className="truncate text-sm font-medium">
+                              {vendor.vendorname || `Нийлүүлэгч #${vendor.vendorid}`}
+                            </p>
+                            <div className="mt-1 flex items-center justify-between gap-3 text-xs text-slate-500">
+                              <span>{vendor.countdoc ?? 0} баримт</span>
+                              <span className="font-medium tabular-nums">
+                                {Number(vendor.totalpoint ?? 0)} оноо
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                      <DataPagination
+                        page={vendorPage}
+                        pageSize={vendorPageSize}
+                        totalItems={filteredVendors.length}
+                        itemLabel="нийлүүлэгч"
+                        busy={loading}
+                        compact
+                        pageSizeOptions={[8, 16, 32]}
+                        onPageChange={setVendorPage}
+                        onPageSizeChange={(size) => {
+                          setVendorPageSize(size);
+                          setVendorPage(1);
+                        }}
+                        className="px-3"
+                      />
+                    </>
                   ) : (
                     <p className="p-6 text-center text-sm text-slate-500">Нийлүүлэгч олдсонгүй.</p>
                   )}
@@ -415,7 +453,7 @@ export default function EvaluationDetailPage() {
                       <div className="mt-6 flex justify-end">
                         <Button
                           onClick={() => void save()}
-                          disabled={saving}
+                          disabled={saving || tender?.invitationStatusId !== 3}
                           className="bg-orange-500 text-white hover:bg-orange-600"
                         >
                           {saving ? (

@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { DataPagination } from '@/components/data-pagination';
 import {
   Select,
   SelectContent,
@@ -16,11 +17,16 @@ import {
 } from '@/components/ui/select';
 import {
   formatEmployeeMoney,
+  invitationStatusLabels,
   getTenderCompletion,
   type EmployeeTender,
   type EmployeeTenderStatus,
 } from '@/lib/employee-tender';
-import { fetchEmployeeTenders } from '@/lib/api';
+import {
+  fetchEmployeeTenders,
+  fetchMyEmployeePermission,
+  type EmployeePermission,
+} from '@/lib/api';
 
 const status: Record<EmployeeTenderStatus, { label: string; className: string }> = {
   draft: { label: 'Ноорог', className: 'bg-slate-100 text-slate-700' },
@@ -33,9 +39,18 @@ export default function EmployeeTenderListPage() {
   const [tenders, setTenders] = useState<EmployeeTender[]>([]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [permission, setPermission] = useState<EmployeePermission | null>(null);
   useEffect(() => {
-    void fetchEmployeeTenders().then(setTenders);
+    void Promise.all([fetchEmployeeTenders(), fetchMyEmployeePermission()]).then(
+      ([rows, currentPermission]) => {
+        setTenders(rows);
+        setPermission(currentPermission);
+      }
+    );
   }, []);
+  const canManageTender = Boolean(permission?.isAdmin || permission?.isTenderManage);
   const filtered = useMemo(
     () =>
       tenders.filter(
@@ -47,6 +62,14 @@ export default function EmployeeTenderListPage() {
       ),
     [filter, query, tenders]
   );
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const visibleTenders = useMemo(
+    () => filtered.slice((page - 1) * pageSize, page * pageSize),
+    [filtered, page, pageSize]
+  );
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
   return (
     <div className="p-6 lg:p-8">
@@ -58,12 +81,14 @@ export default function EmployeeTenderListPage() {
               Төсөл, урилга болон нийтлэгдсэн тендерийн мэдээллийг удирдана.
             </p>
           </div>
-          <Link href="/employee/tenders/new">
-            <Button className="bg-orange-500 hover:bg-orange-600">
-              <FilePlus2 className="mr-2 h-4 w-4" />
-              Тендер үүсгэх
-            </Button>
-          </Link>
+          {canManageTender && (
+            <Link href="/employee/tenders/new">
+              <Button className="bg-orange-500 hover:bg-orange-600">
+                <FilePlus2 className="mr-2 h-4 w-4" />
+                Тендер үүсгэх
+              </Button>
+            </Link>
+          )}
         </div>
         <Card className="mt-8 border-slate-200 shadow-sm">
           <CardHeader className="border-b border-slate-100">
@@ -72,12 +97,21 @@ export default function EmployeeTenderListPage() {
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <Input
                   value={query}
-                  onChange={(event) => setQuery(event.target.value)}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    setPage(1);
+                  }}
                   placeholder="Тендерийн нэр, кодоор хайх"
                   className="pl-9"
                 />
               </div>
-              <Select value={filter} onValueChange={setFilter}>
+              <Select
+                value={filter}
+                onValueChange={(value) => {
+                  setFilter(value);
+                  setPage(1);
+                }}
+              >
                 <SelectTrigger className="sm:w-48">
                   <SelectValue />
                 </SelectTrigger>
@@ -93,64 +127,78 @@ export default function EmployeeTenderListPage() {
           </CardHeader>
           <CardContent className="p-0">
             {filtered.length ? (
-              <div className="divide-y divide-slate-100">
-                {filtered.map((tender) => {
-                  const completion = getTenderCompletion(tender);
-                  return (
-                    <Link
-                      href={`/employee/tenders/${tender.id}`}
-                      key={tender.id}
-                      className="group grid gap-5 p-6 hover:bg-slate-50 lg:grid-cols-[minmax(0,1fr)_180px_160px_36px] lg:items-center"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge className={status[tender.status].className}>
-                            {status[tender.status].label}
-                          </Badge>
-                          <span className="text-xs font-medium text-slate-500">
-                            {tender.tenderCode}
-                          </span>
-                          <span className="text-xs text-slate-400">{tender.invitationCode}</span>
-                        </div>
-                        <h2 className="mt-2 truncate font-semibold text-slate-900">
-                          {tender.name || 'Нэр өгөөгүй тендер'}
-                        </h2>
-                        <p className="mt-1 text-sm text-slate-500">
-                          {tender.department || 'Хэлтэс сонгоогүй'} •{' '}
-                          {tender.tenderType || 'Төрөл сонгоогүй'}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-slate-500">Төсөвт өртөг</p>
-                        <p className="mt-1 font-semibold text-slate-900">
-                          {formatEmployeeMoney(tender.budget)}
-                        </p>
-                        {tender.acceptDate && (
-                          <p className="mt-1 flex items-center gap-1 text-xs text-slate-500">
-                            <CalendarDays className="h-3 w-3" />
-                            {tender.acceptDate.replace('T', ' ')}
+              <>
+                <div className="divide-y divide-slate-100">
+                  {visibleTenders.map((tender) => {
+                    const completion = getTenderCompletion(tender);
+                    return (
+                      <Link
+                        href={`/employee/tenders/${tender.id}`}
+                        key={tender.id}
+                        className="group grid gap-5 p-6 hover:bg-slate-50 lg:grid-cols-[minmax(0,1fr)_180px_160px_36px] lg:items-center"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge className={status[tender.status].className}>
+                              {invitationStatusLabels[tender.invitationStatusId ?? -1] ??
+                                status[tender.status].label}
+                            </Badge>
+                            <span className="text-xs font-medium text-slate-500">
+                              {tender.tenderCode}
+                            </span>
+                            <span className="text-xs text-slate-400">{tender.invitationCode}</span>
+                          </div>
+                          <h2 className="mt-2 truncate font-semibold text-slate-900">
+                            {tender.name || 'Нэр өгөөгүй тендер'}
+                          </h2>
+                          <p className="mt-1 text-sm text-slate-500">
+                            {tender.department || 'Хэлтэс сонгоогүй'} •{' '}
+                            {tender.tenderType || 'Төрөл сонгоогүй'}
                           </p>
-                        )}
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-xs">
-                          <span className="text-slate-500">Бүрдүүлэлт</span>
-                          <span className="font-semibold">
-                            {completion.completed}/{completion.total}
-                          </span>
                         </div>
-                        <div className="mt-2 h-2 rounded-full bg-slate-100">
-                          <div
-                            className="h-full rounded-full bg-orange-500"
-                            style={{ width: `${completion.percent}%` }}
-                          />
+                        <div>
+                          <p className="text-xs text-slate-500">Төсөвт өртөг</p>
+                          <p className="mt-1 font-semibold text-slate-900">
+                            {formatEmployeeMoney(tender.budget)}
+                          </p>
+                          {tender.acceptDate && (
+                            <p className="mt-1 flex items-center gap-1 text-xs text-slate-500">
+                              <CalendarDays className="h-3 w-3" />
+                              {tender.acceptDate.replace('T', ' ')}
+                            </p>
+                          )}
                         </div>
-                      </div>
-                      <ChevronRight className="h-5 w-5 text-slate-300 group-hover:text-orange-500" />
-                    </Link>
-                  );
-                })}
-              </div>
+                        <div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-slate-500">Бүрдүүлэлт</span>
+                            <span className="font-semibold">
+                              {completion.completed}/{completion.total}
+                            </span>
+                          </div>
+                          <div className="mt-2 h-2 rounded-full bg-slate-100">
+                            <div
+                              className="h-full rounded-full bg-orange-500"
+                              style={{ width: `${completion.percent}%` }}
+                            />
+                          </div>
+                        </div>
+                        <ChevronRight className="h-5 w-5 text-slate-300 group-hover:text-orange-500" />
+                      </Link>
+                    );
+                  })}
+                </div>
+                <DataPagination
+                  page={page}
+                  pageSize={pageSize}
+                  totalItems={filtered.length}
+                  itemLabel="тендер"
+                  onPageChange={setPage}
+                  onPageSizeChange={(size) => {
+                    setPageSize(size);
+                    setPage(1);
+                  }}
+                />
+              </>
             ) : (
               <div className="py-20 text-center">
                 <Files className="mx-auto h-10 w-10 text-slate-300" />

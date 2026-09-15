@@ -55,6 +55,20 @@ export default function LoginPage() {
       const session = await loginAccount(username.trim(), password);
       if (!session.success) throw new Error(session.message || 'Нэвтрэх мэдээлэл буруу байна.');
 
+      if (session.role === 'admin') {
+        setStoredAuthState(true, {
+          role: 'admin',
+          userId: session.userid,
+          token: session.token,
+          username: username.trim(),
+          vendorName: 'МАК Тендер',
+          email: username.trim(),
+          contactName: session.username || 'Системийн админ',
+        });
+        window.location.assign('/admin');
+        return;
+      }
+
       if (session.role === 'employee' && session.empid) {
         const employeeUser = {
           role: 'employee' as const,
@@ -142,7 +156,7 @@ export default function LoginPage() {
             <CardHeader className="space-y-2 pb-6 px-6 pt-8">
               <CardTitle className="text-2xl font-bold text-slate-900">Нэвтрэх</CardTitle>
               <CardDescription className="text-slate-500">
-                Ажилтан ERP и-мэйл, нууц үгээрээ; нийлүүлэгч Tender бүртгэлээрээ нэвтэрнэ.
+                Ажилтан ERP эрхээрээ, нийлүүлэгч болон админ Tender бүртгэлийн эрхээрээ нэвтэрнэ.
               </CardDescription>
             </CardHeader>
             <CardContent className="px-6 pb-8">

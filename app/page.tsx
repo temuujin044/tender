@@ -13,7 +13,7 @@ export default async function HomePage() {
   const role = cookieStore.get(AUTH_ROLE_COOKIE_KEY)?.value;
 
   if (isAuthenticated) {
-    redirect(role === 'employee' ? '/employee' : '/dashboard');
+    redirect(role === 'admin' ? '/admin' : role === 'employee' ? '/employee' : '/dashboard');
   }
 
   return (

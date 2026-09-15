@@ -22,8 +22,9 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
+import { DataPagination } from '@/components/data-pagination';
 import { Skeleton } from '@/components/ui/skeleton';
-import { fetchEvaluationTenders } from '@/lib/api';
+import { fetchEvaluationTenders, fetchMyEmployeePermission } from '@/lib/api';
 import type { Tender } from '@/lib/tender-data';
 
 export default function EvaluationsPage() {
@@ -31,11 +32,17 @@ export default function EvaluationsPage() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
+        const permission = await fetchMyEmployeePermission();
+        if (!permission.isAdmin && !permission.isTenderEvaluate) {
+          throw new Error('Үнэлгээ өгөх эрхгүй байна.');
+        }
         const rows = await fetchEvaluationTenders();
         if (!cancelled) setTenders(rows);
       } catch (requestError) {
@@ -64,6 +71,14 @@ export default function EvaluationsPage() {
         .includes(normalized)
     );
   }, [query, tenders]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const visibleTenders = useMemo(
+    () => filtered.slice((page - 1) * pageSize, page * pageSize),
+    [filtered, page, pageSize]
+  );
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
   const awaiting = tenders.filter((tender) => tender.status === 'closed').length;
   const completed = tenders.filter((tender) => tender.status === 'awarded').length;
@@ -76,7 +91,8 @@ export default function EvaluationsPage() {
           <p className="text-xs font-semibold uppercase text-orange-600">ТЕНДЕРИЙН АЖИЛТАН</p>
           <h1 className="mt-1 text-2xl font-bold text-slate-950 sm:text-3xl">Үнэлгээ</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-500 sm:text-base">
-            Хаагдсан тендерүүдийн нийлүүлэгчийн санал, шалгуур болон онооны явцыг удирдана.
+            Таны үнэлгээний хороонд гишүүнээр орсон тендерүүдийн санал, шалгуур болон онооны явцыг
+            удирдана.
           </p>
         </header>
 
@@ -128,14 +144,17 @@ export default function EvaluationsPage() {
               <div>
                 <CardTitle className="text-lg">Үнэлэх тендерүүд</CardTitle>
                 <p className="mt-1 text-sm text-slate-500">
-                  Санал хүлээн авах хугацаа дууссан урилгын жагсаалт
+                  Таны хорооны гишүүнээр орсон, санал нээгдсэн урилгын жагсаалт
                 </p>
               </div>
               <div className="relative w-full sm:w-80">
                 <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
                 <Input
                   value={query}
-                  onChange={(event) => setQuery(event.target.value)}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    setPage(1);
+                  }}
                   placeholder="Нэр, код, нэгжээр хайх"
                   className="bg-white pl-9"
                 />
@@ -150,53 +169,62 @@ export default function EvaluationsPage() {
                 ))}
               </div>
             ) : filtered.length ? (
-              <div className="divide-y divide-slate-100">
-                {filtered.slice(0, 60).map((tender) => (
-                  <Link
-                    key={tender.invitationId}
-                    href={`/employee/evaluations/${tender.invitationId}`}
-                    className="group grid min-w-0 gap-4 p-5 transition-colors hover:bg-slate-50 md:grid-cols-[minmax(0,1fr)_190px_44px] md:items-center"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <Badge
-                          className={
-                            tender.status === 'awarded'
-                              ? 'border-0 bg-emerald-50 text-emerald-700'
-                              : 'border-0 bg-amber-50 text-amber-700'
-                          }
+              <>
+                <div className="divide-y divide-slate-100">
+                  {visibleTenders.map((tender) => (
+                    <Link
+                      key={tender.invitationId}
+                      href={`/employee/evaluations/${tender.invitationId}`}
+                      className="group grid min-w-0 gap-4 p-5 transition-colors hover:bg-slate-50 md:grid-cols-[minmax(0,1fr)_190px_44px] md:items-center"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Badge
+                            className={
+                              tender.status === 'awarded'
+                                ? 'border-0 bg-emerald-50 text-emerald-700'
+                                : 'border-0 bg-amber-50 text-amber-700'
+                            }
+                          >
+                            {tender.status === 'awarded' ? 'Үр дүн гарсан' : 'Үнэлгээ хүлээж буй'}
+                          </Badge>
+                          <span className="truncate text-xs text-slate-500">
+                            {tender.invitationCode}
+                          </span>
+                        </div>
+                        <h2
+                          className="mt-2 truncate text-sm font-semibold text-slate-900"
+                          title={tender.title}
                         >
-                          {tender.status === 'awarded' ? 'Үр дүн гарсан' : 'Үнэлгээ хүлээж буй'}
-                        </Badge>
-                        <span className="truncate text-xs text-slate-500">
-                          {tender.invitationCode}
-                        </span>
+                          {tender.title}
+                        </h2>
+                        <p className="mt-1 truncate text-xs text-slate-500">
+                          {tender.department} · {tender.tenderCode}
+                        </p>
                       </div>
-                      <h2
-                        className="mt-2 truncate text-sm font-semibold text-slate-900"
-                        title={tender.title}
-                      >
-                        {tender.title}
-                      </h2>
-                      <p className="mt-1 truncate text-xs text-slate-500">
-                        {tender.department} · {tender.tenderCode}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500">Санал нээсэн</p>
-                      <p className="mt-1 text-sm font-medium text-slate-800">{tender.openDate}</p>
-                    </div>
-                    <span className="flex size-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 group-hover:border-orange-200 group-hover:text-orange-600">
-                      <ArrowRight className="size-4" />
-                    </span>
-                  </Link>
-                ))}
-                {filtered.length > 60 && (
-                  <p className="border-t border-slate-100 px-6 py-4 text-center text-xs text-slate-500">
-                    Эхний 60 үр дүнг харуулж байна. Хайлтаа нарийвчилна уу.
-                  </p>
-                )}
-              </div>
+                      <div>
+                        <p className="text-xs text-slate-500">Санал нээсэн</p>
+                        <p className="mt-1 text-sm font-medium text-slate-800">{tender.openDate}</p>
+                      </div>
+                      <span className="flex size-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 group-hover:border-orange-200 group-hover:text-orange-600">
+                        <ArrowRight className="size-4" />
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+                <DataPagination
+                  page={page}
+                  pageSize={pageSize}
+                  totalItems={filtered.length}
+                  itemLabel="тендер"
+                  busy={loading}
+                  onPageChange={setPage}
+                  onPageSizeChange={(size) => {
+                    setPageSize(size);
+                    setPage(1);
+                  }}
+                />
+              </>
             ) : (
               <Empty className="min-h-64 py-10">
                 <EmptyHeader>
@@ -204,7 +232,9 @@ export default function EvaluationsPage() {
                     <FileSearch />
                   </EmptyMedia>
                   <EmptyTitle className="text-base">Тохирох тендер олдсонгүй</EmptyTitle>
-                  <EmptyDescription>Хайлтын утгаа өөрчлөөд дахин шалгана уу.</EmptyDescription>
+                  <EmptyDescription>
+                    Таны үнэлгээний хороонд хуваарилагдсан тендер одоогоор алга байна.
+                  </EmptyDescription>
                 </EmptyHeader>
               </Empty>
             )}

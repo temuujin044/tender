@@ -24,6 +24,7 @@ export interface Tender {
   tenderCode?: string;
   tenderId: number;
   invitationId: number;
+  invitationStatusId?: number;
   invitationCode: string;
   title: string;
   description: string;
@@ -36,6 +37,8 @@ export interface Tender {
   status: TenderStatus;
   value: string;
   department: string;
+  activityIds: number[];
+  activities: string[];
   documents: TenderDocument[];
   requirements: TenderRequirement[];
   batches: TenderBatch[];

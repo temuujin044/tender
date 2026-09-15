@@ -1,4 +1,5 @@
 import type { CompanyFormData } from '@/lib/company-form';
+import { getStoredUser } from '@/lib/auth';
 import { countryOptions, getOptionLabel } from '@/lib/company-form';
 import type { Tender, TenderDocument, TenderRequirement, TenderStatus } from '@/lib/tender-data';
 import type { EmployeeMember, EmployeeTender } from '@/lib/employee-tender';
@@ -24,10 +25,12 @@ export class ApiError extends Error {
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData;
+  const token = path.startsWith('/tenderauth/') ? undefined : getStoredUser()?.token;
   const response = await fetch(`${API_PREFIX}${normalizeApiPath(path)}`, {
     ...init,
     headers: {
       Accept: 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.body && !isFormData ? { 'Content-Type': 'application/json' } : {}),
       ...init?.headers,
     },
@@ -64,7 +67,96 @@ type ApiEnvelope<T> = {
   ret_type?: number;
   ret_msg?: string;
   ret_data?: T;
+  data?: T;
 };
+
+export type AuditEvent = {
+  id: number;
+  request_id: string;
+  occurred_at: string;
+  user_id: number;
+  username: string;
+  role: 'admin' | 'employee' | 'vendor';
+  employee_id: number | null;
+  vendor_id: number | null;
+  action: string;
+  resource: string;
+  outcome: 'success' | 'failed' | 'pending';
+  status_code: number;
+  change_count?: number;
+  title?: string;
+  entity_name?: string;
+  entity_code?: string;
+};
+
+export type AuditChange = {
+  id: number;
+  table_name: string;
+  operation: 'insert' | 'update' | 'delete';
+  record_key: Record<string, unknown>;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+};
+
+export type AuditFilters = {
+  entity?: string;
+  username?: string;
+  role?: string;
+  outcome?: string;
+  date_from?: string;
+  date_to?: string;
+  tender_id?: string;
+  invitation_id?: string;
+  vendor_id?: string;
+};
+
+export type AuditList = { count: number; page: number; page_size: number; results: AuditEvent[] };
+export type AuditDetail = {
+  event: AuditEvent;
+  count: number;
+  page: number;
+  page_size: number;
+  changes: AuditChange[];
+  details?: {
+    category: string;
+    operation: 'insert' | 'update' | 'delete';
+    before: Record<string, unknown> | null;
+    after: Record<string, unknown> | null;
+  }[];
+};
+
+export function fetchAuditAccess(signal?: AbortSignal) {
+  return apiRequest<{ can_view_audit: boolean }>('/audit/access/', { signal });
+}
+
+export type AdminAccess = {
+  can_access_admin: boolean;
+  can_manage_settings: boolean;
+  can_view_audit: boolean;
+};
+
+export function fetchAdminAccess(signal?: AbortSignal) {
+  return apiRequest<AdminAccess>('/admin/access/', { signal });
+}
+
+export function fetchAuditEvents(filters: AuditFilters, page: number, signal?: AbortSignal) {
+  const params = new URLSearchParams({
+    page: String(page),
+    page_size: '25',
+    presentation: 'business',
+  });
+  for (const [key, value] of Object.entries(filters)) {
+    if (value?.trim()) params.set(key, value.trim());
+  }
+  return apiRequest<AuditList>(`/audit/events/?${params}`, { signal });
+}
+
+export function fetchAuditDetail(id: number, page: number, signal?: AbortSignal) {
+  return apiRequest<AuditDetail>(
+    `/audit/events/${id}/?page=${page}&page_size=25&presentation=business`,
+    { signal }
+  );
+}
 
 export type ApiInvitationRow = {
   invitationid: number;
@@ -86,17 +178,23 @@ export type ApiInvitationRow = {
   comment?: string | null;
   balanceday?: number | null;
   status?: string | number | null;
+  status_id?: number | null;
+  acceptdate_iso?: string | null;
+  opendate_iso?: string | null;
   isselect?: number | null;
+  activityids?: number[] | null;
+  activitynames?: string[] | string | null;
 };
 
 type CatalogScope = 'all' | 'open' | 'result' | 'saved';
+export type ActivityDiscoveryScope = 'matching' | 'all';
 
 function unwrapRetData<T>(response: ApiEnvelope<T>): T {
   const retType = response.RetType ?? response.retType ?? response.ret_type ?? 0;
   if (retType !== 0 && response.RetMsg) throw new ApiError(response.RetMsg);
   if (retType !== 0)
     throw new ApiError(response.retMsg ?? response.ret_msg ?? 'Backend өгөгдөл буцаасангүй.');
-  return (response.RetData ?? response.retData ?? response.ret_data) as T;
+  return (response.RetData ?? response.retData ?? response.ret_data ?? response.data) as T;
 }
 
 function clean(value: unknown, fallback = 'Мэдээлэл оруулаагүй'): string {
@@ -107,6 +205,17 @@ function clean(value: unknown, fallback = 'Мэдээлэл оруулаагүй
 
 export function formatApiDate(value: string | null | undefined, includeTime = true): string {
   if (!value) return 'Товлоогүй';
+  if (/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value)) {
+    value = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'Asia/Ulaanbaatar',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date(value));
+  }
   const normalized = value.replace('T', ' ').replace(/Z$/, '');
   const [date, time] = normalized.split(' ');
   const formattedDate = date.replaceAll('-', '.');
@@ -130,6 +239,8 @@ function invitationStatus(
     return Number.isFinite(accept) && accept > Date.now() ? 'upcoming' : 'closed';
   }
   const days = Number(row.balanceday ?? -1);
+  if (row.status_id === 3) return 'closed';
+  if (row.acceptdate_iso && Date.parse(row.acceptdate_iso) <= Date.now()) return 'closed';
   if (days < 0) return 'closed';
   return days <= 3 ? 'closing-soon' : 'open';
 }
@@ -140,6 +251,7 @@ function rowToTender(row: ApiInvitationRow, source: Exclude<CatalogScope, 'all'>
     id: String(row.invitationid),
     tenderId: Number(row.tenderid),
     invitationId: Number(row.invitationid),
+    invitationStatusId: row.status_id ?? undefined,
     tenderCode: clean(row.tendercode, 'Код бүртгэгдээгүй'),
     invitationCode: clean(row.invitationcode, 'Урилгын код бүртгэгдээгүй'),
     title: clean(row.tendername, 'Нэр өгөөгүй тендер'),
@@ -148,11 +260,18 @@ function rowToTender(row: ApiInvitationRow, source: Exclude<CatalogScope, 'all'>
     purchaseType: clean(row.purchasetypename, 'Тендер'),
     publishDate: formatApiDate(row.publishdate, false),
     startDate: formatApiDate(row.startdate, false),
-    deadline: formatApiDate(row.acceptdate),
-    openDate: formatApiDate(row.opendate),
+    deadline: formatApiDate(row.acceptdate_iso !== undefined ? row.acceptdate_iso : row.acceptdate),
+    openDate: formatApiDate(row.opendate_iso !== undefined ? row.opendate_iso : row.opendate),
     status,
     value: money(row.budget),
     department: clean(row.departmentname, 'Хариуцсан нэгж тодорхойгүй'),
+    activityIds: Array.isArray(row.activityids) ? row.activityids.map(Number) : [],
+    activities: (Array.isArray(row.activitynames)
+      ? row.activitynames
+      : String(row.activitynames ?? '').split(',')
+    )
+      .map((value) => value.trim())
+      .filter(Boolean),
     documents: [],
     requirements: [],
     batches: [],
@@ -160,12 +279,12 @@ function rowToTender(row: ApiInvitationRow, source: Exclude<CatalogScope, 'all'>
       { event: 'Тендер нийтэлсэн', date: formatApiDate(row.publishdate, false), complete: true },
       {
         event: 'Санал хүлээн авах эцсийн хугацаа',
-        date: formatApiDate(row.acceptdate),
+        date: formatApiDate(row.acceptdate_iso !== undefined ? row.acceptdate_iso : row.acceptdate),
         complete: status !== 'open' && status !== 'closing-soon',
       },
       {
         event: 'Санал нээх',
-        date: formatApiDate(row.opendate),
+        date: formatApiDate(row.opendate_iso !== undefined ? row.opendate_iso : row.opendate),
         complete: status === 'closed' || status === 'awarded',
       },
     ],
@@ -173,14 +292,18 @@ function rowToTender(row: ApiInvitationRow, source: Exclude<CatalogScope, 'all'>
 }
 
 async function fetchInvitationRows(endpoint: string) {
-  const response = await apiRequest<ApiEnvelope<ApiInvitationRow[]>>(`/maktender/${endpoint}/`);
+  const endpointPath = endpoint.includes('?') ? endpoint.replace('?', '/?') : `${endpoint}/`;
+  const response = await apiRequest<ApiEnvelope<ApiInvitationRow[]>>(`/maktender/${endpointPath}`);
   return unwrapRetData(response) ?? [];
 }
 
-export async function fetchTenderCatalog(scope: CatalogScope = 'all'): Promise<Tender[]> {
+export async function fetchTenderCatalog(
+  scope: CatalogScope = 'all',
+  discoveryScope: ActivityDiscoveryScope = 'matching'
+): Promise<Tender[]> {
   const endpoints: Record<Exclude<CatalogScope, 'all'>, string> = {
     saved: 'getInvList',
-    open: 'getInvListVendor',
+    open: `getInvListVendor?scope=${discoveryScope}`,
     result: 'getInvListResult',
   };
   const requests: { source: Exclude<CatalogScope, 'all'>; endpoint: string }[] =
@@ -300,6 +423,8 @@ type InvitationHeader = {
   status?: number | null;
   statusname?: string | null;
   delaynote?: string | null;
+  acceptdate_iso?: string | null;
+  opendate_iso?: string | null;
 };
 
 type InvitationCriterion = {
@@ -312,6 +437,7 @@ type InvitationCriterion = {
 };
 type InvitationRequirement = {
   requireid: number;
+  document_required?: boolean | null;
   requiretypeid?: number | null;
   requirename?: string | null;
   requirevalue?: string | null;
@@ -387,11 +513,17 @@ export async function fetchTenderDetail(invitationId: number): Promise<Tender> {
     purchaseType: clean(header.purchasetypename, 'Тендер'),
     publishDate: formatApiDate(header.startdate, false),
     startDate: formatApiDate(header.startdate, false),
-    deadline: formatApiDate(header.enddate),
-    openDate: formatApiDate(header.opendate),
+    deadline: formatApiDate(
+      header.acceptdate_iso !== undefined ? header.acceptdate_iso : header.enddate
+    ),
+    openDate: formatApiDate(
+      header.opendate_iso !== undefined ? header.opendate_iso : header.opendate
+    ),
     status: Number(header.balanceday ?? -1) >= 0 ? 'open' : 'closed',
     value: 'Төсөв зарлаагүй',
     department: clean(header.departmentname),
+    activityIds: [],
+    activities: [],
     documents: [],
     requirements: [],
     batches: [],
@@ -416,7 +548,12 @@ export async function fetchTenderDetail(invitationId: number): Promise<Tender> {
     category: clean(header.tendertypename, fallback.category),
     department: clean(header.departmentname, fallback.department),
     startDate: formatApiDate(header.startdate, false),
-    deadline: formatApiDate(header.enddate),
+    deadline: formatApiDate(
+      header.acceptdate_iso !== undefined ? header.acceptdate_iso : header.enddate
+    ),
+    openDate: formatApiDate(
+      header.opendate_iso !== undefined ? header.opendate_iso : header.opendate
+    ),
     requirements: mappedRequirements,
     batches: batches.map((batch) => ({
       id: Number(batch.batchid),
@@ -440,7 +577,9 @@ export async function fetchTenderDetail(invitationId: number): Promise<Tender> {
       { event: 'Урилга нийтэлсэн', date: formatApiDate(header.startdate, false), complete: true },
       {
         event: 'Санал хүлээн авах эцсийн хугацаа',
-        date: formatApiDate(header.enddate),
+        date: formatApiDate(
+          header.acceptdate_iso !== undefined ? header.acceptdate_iso : header.enddate
+        ),
         complete: Number(header.balanceday ?? -1) < 0,
       },
       {
@@ -462,7 +601,7 @@ export type AccountSession = {
   positionname?: string;
   vendorid: number;
   empid?: number | null;
-  role?: 'vendor' | 'employee';
+  role?: 'vendor' | 'employee' | 'admin';
   token?: string;
   message?: string;
   created?: boolean;
@@ -473,6 +612,31 @@ export async function loginAccount(username: string, password: string) {
     method: 'POST',
     body: JSON.stringify({ username, password }),
   });
+}
+
+export type VendorActivity = {
+  activityid: number;
+  activity: string;
+};
+
+export async function fetchVendorActivities() {
+  const response = await apiRequest<ApiEnvelope<VendorActivity[]>>('/vendorActivity/getList/');
+  return unwrapRetData(response) ?? [];
+}
+
+export async function saveVendorActivity(activity: string, activityId = -1) {
+  const response = await apiRequest<ApiEnvelope<VendorActivity[]>>('/vendorActivity/save/', {
+    method: 'POST',
+    body: JSON.stringify([{ activityid: activityId, activity }]),
+  });
+  return unwrapRetData(response) ?? [];
+}
+
+export async function deleteVendorActivity(activityId: number) {
+  const response = await apiRequest<ApiEnvelope<unknown>>(`/vendorActivity/delete/${activityId}/`, {
+    method: 'DELETE',
+  });
+  unwrapRetData(response);
 }
 
 export async function registerVendor(form: CompanyFormData) {
@@ -496,7 +660,8 @@ export async function registerVendor(form: CompanyFormData) {
       vendortypeid: entityTypes[form.entityType] ?? 1,
       countryname: getOptionLabel(countryOptions, form.country) || form.country,
       establisheddate: form.foundedDate.replaceAll('-', '.'),
-      activity: form.businessDirection.trim(),
+      activityids: form.businessDirections.map(Number),
+      activityid: Number(form.businessDirections[0]),
       vendorstatusid: statuses[form.companyStatus] ?? 1,
       address: form.companyAddress.trim(),
       vendorphone: form.companyPhone.trim(),
@@ -549,14 +714,10 @@ export async function updateVendorProfile(
       registernumber: form.registrationNumber.trim(),
       isvatpayer: form.isVatPayer ? 1 : 0,
       vendortypeid: entityTypes[form.entityType] ?? Number(current.vendortypeid ?? 1),
-      countryname:
-        form.country === 'other'
-          ? String(
-              current.countryname ?? getOptionLabel(countryOptions, form.country) ?? form.country
-            )
-          : getOptionLabel(countryOptions, form.country) || form.country,
+      countryname: getOptionLabel(countryOptions, form.country) || form.country,
       establisheddate: form.foundedDate.replaceAll('-', '.'),
-      activity: form.businessDirection.trim(),
+      activityids: form.businessDirections.map(Number),
+      activityid: Number(form.businessDirections[0]),
       vendorstatusid: statuses[form.companyStatus] ?? Number(current.vendorstatusid ?? 1),
       address: form.companyAddress.trim(),
       vendorphone: form.companyPhone.trim(),
@@ -735,12 +896,15 @@ type TenderInitialRecord = {
   tendertype?: number | null;
   purchasetypeid?: number | null;
   departmentid?: number | null;
+  activityid?: number | null;
+  activityids?: number[] | null;
 };
 
 export type EmployeeTenderOptions = {
   tenderTypes: TenderTypeOption[];
   purchaseTypes: PurchaseTypeOption[];
   departments: DepartmentOption[];
+  activities: VendorActivity[];
 };
 
 async function fetchTenderInitialData(tenderId: number) {
@@ -752,6 +916,7 @@ async function fetchTenderInitialData(tenderId: number) {
         DepartmentOption[],
         TenderBatchOption[],
         TenderInitialRecord | null,
+        VendorActivity[],
       ]
     >
   >(`/maktender/getTenderInitialData/${tenderId}/`);
@@ -761,6 +926,7 @@ async function fetchTenderInitialData(tenderId: number) {
       tenderTypes: data[0] ?? [],
       purchaseTypes: data[1] ?? [],
       departments: data[2] ?? [],
+      activities: data[5] ?? [],
     },
     batches: data[3] ?? [],
     tender: data[4] ?? null,
@@ -774,6 +940,7 @@ export async function fetchEmployeeTenderOptions(): Promise<EmployeeTenderOption
 function inputDate(value: string | null | undefined, withTime = false) {
   if (!value) return '';
   const normalized = value.replaceAll('.', '-').replace(' ', 'T').replace(/Z$/, '');
+  if (!/^\d{4}-\d{2}-\d{2}(?:T|$)/.test(normalized)) return '';
   return withTime ? normalized.slice(0, 16) : normalized.slice(0, 10);
 }
 
@@ -788,12 +955,14 @@ function catalogTenderToEmployee(tender: Tender): EmployeeTender {
     id: tender.id,
     tenderId: tender.tenderId,
     invitationId: tender.invitationId,
+    invitationStatusId: tender.invitationStatusId,
     tenderCode: tender.tenderCode ?? tender.id,
     invitationCode: tender.invitationCode,
     name: tender.title,
     tenderType: tender.category,
     purchaseType: tender.purchaseType,
     department: tender.department,
+    activityIds: tender.activityIds,
     budget: Number(tender.value.replace(/[^0-9]/g, '')) || 0,
     publishDate: inputDate(tender.publishDate),
     startDate: inputDate(tender.startDate),
@@ -803,7 +972,14 @@ function catalogTenderToEmployee(tender: Tender): EmployeeTender {
     evaluationDate: '',
     description: tender.description,
     note: '',
-    status: employeeStatus(tender.status),
+    status:
+      tender.invitationStatusId === 0
+        ? 'draft'
+        : tender.invitationStatusId === 6
+          ? 'ready'
+          : tender.invitationStatusId === 1
+            ? 'published'
+            : employeeStatus(tender.status),
     batches: tender.batches.map((batch) => ({
       id: String(batch.id),
       code: batch.code,
@@ -842,11 +1018,23 @@ export async function fetchEmployeeTender(invitationId: number): Promise<Employe
   return {
     ...mapped,
     budget: Number(main?.budget ?? 0),
-    status: header.status === null || header.status === undefined ? 'draft' : mapped.status,
+    invitationStatusId: Number(header.status ?? 0),
+    acceptDate: inputDate(
+      formatApiDate(header.acceptdate_iso !== undefined ? header.acceptdate_iso : header.enddate),
+      true
+    ),
+    openDate: inputDate(
+      formatApiDate(header.opendate_iso !== undefined ? header.opendate_iso : header.opendate),
+      true
+    ),
+    status: header.status == null || Number(header.status) === 0 ? 'draft' : mapped.status,
     publishDate: inputDate(main?.publishdate),
     startDate: inputDate(main?.startdate),
     endDate: inputDate(main?.enddate),
     evaluationDate: inputDate(main?.evaluationdate),
+    activityIds:
+      main?.activityids?.map(Number).filter((value) => Number.isInteger(value) && value > 0) ??
+      (main?.activityid ? [Number(main.activityid)] : []),
     batches: initial.batches.length
       ? initial.batches.map((batch) => ({
           id: String(batch.batchid),
@@ -867,7 +1055,12 @@ export async function fetchEmployeeTender(invitationId: number): Promise<Employe
             : Number(item.requiretypeid) === 35
               ? 'technical'
               : 'general';
-        return { id: String(item.requireid), name, type, documentRequired: true };
+        return {
+          id: String(item.requireid),
+          name,
+          type,
+          documentRequired: item.document_required ?? true,
+        };
       }),
     criteria: criteria
       .filter((item) => item.visible !== 0)
@@ -908,6 +1101,7 @@ function findOptionId<T>(
   getId: (option: T) => number
 ) {
   const normalized = label.trim().toLowerCase();
+  if (!normalized) return null;
   const match = options.find((option) => {
     const candidate = getLabel(option).trim().toLowerCase();
     return (
@@ -920,38 +1114,70 @@ function findOptionId<T>(
 
 export async function saveEmployeeTenderToBackend(tender: EmployeeTender) {
   const { options } = await fetchTenderInitialData(tender.tenderId || 0);
-  const response = await apiRequest<ApiEnvelope<number>>('/maktender/saveTender/', {
+  const response = await apiRequest<
+    ApiEnvelope<{
+      tenderid: number;
+      invitationid: number;
+      invitationcode: string;
+      requirements: EmployeeTender['requirements'];
+    }>
+  >('/maktender/savePortalTender/', {
     method: 'POST',
     body: JSON.stringify({
-      tenderid: tender.tenderId > 0 ? tender.tenderId : 0,
-      tendercode: tender.tenderCode,
-      tendername: tender.name,
-      tendertypeid: findOptionId(
-        options.tenderTypes,
-        tender.tenderType,
-        (item) => item.tendertypename,
-        (item) => item.tendertypeid
-      ),
-      purchasetypeid: findOptionId(
-        options.purchaseTypes,
-        tender.purchaseType,
-        (item) => item.purchasetypename,
-        (item) => item.purchasetypeid
-      ),
-      departmentid: findOptionId(
-        options.departments,
-        tender.department,
-        (item) => item.departmentname,
-        (item) => item.departmentid
-      ),
-      budget: tender.budget,
-      evaluationdate: tender.evaluationDate || null,
-      publishdate: tender.publishDate || null,
-      startdate: tender.startDate || null,
-      enddate: tender.endDate || null,
-      plandate: tender.startDate || null,
-      createdby: tender.createdBy,
-      batch: tender.batches.map((batch) => ({ batchname: batch.name })),
+      header: {
+        tenderid: tender.tenderId > 0 ? tender.tenderId : 0,
+        tendercode: tender.tenderCode,
+        tendername: tender.name,
+        tendertypeid: findOptionId(
+          options.tenderTypes,
+          tender.tenderType,
+          (item) => item.tendertypename,
+          (item) => item.tendertypeid
+        ),
+        purchasetypeid: findOptionId(
+          options.purchaseTypes,
+          tender.purchaseType,
+          (item) => item.purchasetypename,
+          (item) => item.purchasetypeid
+        ),
+        departmentid: findOptionId(
+          options.departments,
+          tender.department,
+          (item) => item.departmentname,
+          (item) => item.departmentid
+        ),
+        activityids: tender.activityIds,
+        activityid: tender.activityIds[0] || null,
+        budget: tender.budget,
+        evaluationdate: tender.evaluationDate || null,
+        publishdate: tender.publishDate || null,
+        startdate: tender.startDate || null,
+        enddate: tender.endDate || null,
+        plandate: tender.startDate || null,
+        createdby: tender.createdBy,
+        batch: tender.batches.map((batch) => ({ batchname: batch.name })),
+      },
+      details: {
+        invitationid: tender.invitationId || 0,
+        acceptdate: tender.acceptDate || null,
+        opendate: tender.openDate || null,
+        description: tender.description,
+        note: tender.note,
+        criteria: tender.criteria.map(({ name, type, weight }) => ({ name, type, weight })),
+        requirements: tender.requirements.map(({ id, name, type, documentRequired }) => ({
+          id,
+          name,
+          type,
+          documentRequired,
+        })),
+        members: tender.members.map(({ employeeId, name, position, role, email }) => ({
+          empid: employeeId,
+          name,
+          position,
+          role,
+          email,
+        })),
+      },
     }),
   });
   return unwrapRetData(response);
@@ -998,7 +1224,8 @@ export async function saveEmployeeTenderDraftDetails(tender: EmployeeTender) {
       note: tender.note,
       createdby: tender.createdBy,
       criteria: tender.criteria.map(({ name, type, weight }) => ({ name, type, weight })),
-      requirements: tender.requirements.map(({ name, type, documentRequired }) => ({
+      requirements: tender.requirements.map(({ id, name, type, documentRequired }) => ({
+        id,
         name,
         type,
         documentRequired,
@@ -1055,7 +1282,12 @@ export async function publishEmployeeTenderToBackend(tender: EmployeeTender) {
       description: tender.description || tender.name,
       createdby: tender.createdBy,
       criteria: tender.criteria.map(({ name, type, weight }) => ({ name, type, weight })),
-      requirements: tender.requirements.map(({ name, type }) => ({ name, type })),
+      requirements: tender.requirements.map(({ id, name, type, documentRequired }) => ({
+        id,
+        name,
+        type,
+        documentRequired,
+      })),
       members: tender.members.map(({ employeeId, name, position, role, email }) => ({
         empid: employeeId,
         name,
@@ -1066,6 +1298,45 @@ export async function publishEmployeeTenderToBackend(tender: EmployeeTender) {
     }),
   });
   return unwrapRetData(response);
+}
+
+export type TenderWorkflow = {
+  status: number;
+  label: string;
+  editable: boolean;
+  actions: string[];
+  vendors: Array<{ vendorid: number; name: string; status: number; note: string | null }>;
+  acceptdate: string | null;
+  opendate: string | null;
+};
+
+export async function fetchTenderWorkflow(invitationId: number) {
+  return unwrapRetData(
+    await apiRequest<ApiEnvelope<TenderWorkflow>>(
+      `/maktender/workflow/?invitationid=${invitationId}`
+    )
+  );
+}
+
+export async function performTenderAction(
+  invitationId: number,
+  data: {
+    action: string;
+    note?: string;
+    vendorid?: number;
+    decision?: number;
+    acceptdate?: string;
+    opendate?: string;
+  }
+) {
+  return unwrapRetData(
+    await apiRequest<
+      ApiEnvelope<{ invitationid: number; status: number; new_invitationid?: number }>
+    >('/maktender/workflow/', {
+      method: 'POST',
+      body: JSON.stringify({ ...data, invitationid: invitationId }),
+    })
+  );
 }
 
 export type EvaluationVendor = {
@@ -1098,7 +1369,16 @@ export type EvaluationCriterion = {
 };
 
 export async function fetchEvaluationTenders() {
-  return fetchTenderCatalog('result');
+  const [catalog, assignedResponse] = await Promise.all([
+    fetchTenderCatalog('all'),
+    apiRequest<ApiEnvelope<number[]>>('/maktender/evaluationInvitations/'),
+  ]);
+  const assignedIds = new Set(unwrapRetData(assignedResponse) ?? []);
+  return catalog.filter(
+    (tender) =>
+      assignedIds.has(tender.invitationId) &&
+      (tender.invitationStatusId === 3 || tender.invitationStatusId === 7)
+  );
 }
 
 export async function fetchEvaluationVendors(invitationId: number, employeeId: number) {
@@ -1185,11 +1465,11 @@ export async function fetchEmployeeDirectory() {
 
 export type EmployeePermission = {
   empid: number;
-  isClose: number;
-  isHold: number;
-  isReopen: number;
-  isCancel: number;
-  isJWAdmin: number;
+  isTenderManage: number;
+  isCommitteeManage: number;
+  isTenderEvaluate: number;
+  isTenderApprove: number;
+  isTenderCancel: number;
   isAdmin: number;
 };
 
@@ -1221,24 +1501,38 @@ export async function fetchEmployeePermission(employeeId: number) {
   return unwrapRetData(response);
 }
 
-export async function saveEmployeeSetting(input: {
-  id?: number;
-  actionId: number;
-  memberTypeId: number;
+export async function fetchMyEmployeePermission() {
+  const response = await apiRequest<ApiEnvelope<EmployeePermission>>('/settings/myPermission/');
+  return unwrapRetData(response);
+}
+
+export async function saveEmployeeTenderCommittee(invitationId: number, members: EmployeeMember[]) {
+  const response = await apiRequest<ApiEnvelope<number>>('/maktender/saveTenderCommittee/', {
+    method: 'POST',
+    body: JSON.stringify({
+      invitationid: invitationId,
+      members: members.map(({ employeeId, role, email }) => ({
+        empid: employeeId,
+        role,
+        email,
+      })),
+    }),
+  });
+  return unwrapRetData(response);
+}
+
+export async function replaceEmployeeSettings(input: {
+  actionIds: number[];
   employeeId: number;
   currentUser: string;
 }) {
   const response = await apiRequest<ApiEnvelope<unknown>>('/settings/save/', {
     method: 'POST',
-    body: JSON.stringify([
-      {
-        id: input.id ?? -1,
-        actionid: input.actionId,
-        membertypeid: input.memberTypeId,
-        empid: input.employeeId,
-        currentuser: input.currentUser,
-      },
-    ]),
+    body: JSON.stringify({
+      empid: input.employeeId,
+      actionids: input.actionIds,
+      currentuser: input.currentUser,
+    }),
   });
   unwrapRetData(response);
 }

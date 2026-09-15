@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { AlertCircle, Bell, CheckCircle, Clock, FileText, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { DataPagination } from '@/components/data-pagination';
 import { fetchVendorNotifications, type VendorNotification } from '@/lib/api';
 import { getStoredUser } from '@/lib/auth';
 
@@ -42,6 +43,14 @@ export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<VendorNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const pageCount = Math.max(1, Math.ceil(notifications.length / pageSize));
+  const visibleNotifications = notifications.slice((page - 1) * pageSize, page * pageSize);
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
   useEffect(() => {
     const user = getStoredUser();
@@ -98,43 +107,57 @@ export default function NotificationsPage() {
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-border/60">
-                {notifications.map((notification) => {
-                  const config = typeConfig[notification.type];
-                  const Icon = config.icon;
-                  return (
-                    <Link
-                      key={notification.id}
-                      href={`/tenders/${notification.invitationId}`}
-                      className="flex gap-4 p-6 transition-colors hover:bg-slate-50"
-                    >
-                      <span
-                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${config.bgColor}`}
+              <>
+                <div className="divide-y divide-border/60">
+                  {visibleNotifications.map((notification) => {
+                    const config = typeConfig[notification.type];
+                    const Icon = config.icon;
+                    return (
+                      <Link
+                        key={notification.id}
+                        href={`/tenders/${notification.invitationId}`}
+                        className="flex gap-4 p-6 transition-colors hover:bg-slate-50"
                       >
-                        <Icon className={`h-5 w-5 ${config.iconColor}`} />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium text-foreground">{config.label}</span>
-                          <Badge variant="outline" className="font-normal">
-                            {notification.statusName}
-                          </Badge>
+                        <span
+                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${config.bgColor}`}
+                        >
+                          <Icon className={`h-5 w-5 ${config.iconColor}`} />
                         </span>
-                        <span className="mt-1 block truncate text-sm text-muted-foreground">
-                          {notification.title}
-                        </span>
-                        <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                          <span className="font-medium text-orange-600">
-                            {notification.tenderCode}
+                        <span className="min-w-0 flex-1">
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium text-foreground">{config.label}</span>
+                            <Badge variant="outline" className="font-normal">
+                              {notification.statusName}
+                            </Badge>
                           </span>
-                          <span>{notification.invitationCode}</span>
-                          <span>{notification.time}</span>
+                          <span className="mt-1 block truncate text-sm text-muted-foreground">
+                            {notification.title}
+                          </span>
+                          <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                            <span className="font-medium text-orange-600">
+                              {notification.tenderCode}
+                            </span>
+                            <span>{notification.invitationCode}</span>
+                            <span>{notification.time}</span>
+                          </span>
                         </span>
-                      </span>
-                    </Link>
-                  );
-                })}
-              </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+                <DataPagination
+                  page={page}
+                  pageSize={pageSize}
+                  totalItems={notifications.length}
+                  itemLabel="мэдэгдэл"
+                  busy={loading}
+                  onPageChange={setPage}
+                  onPageSizeChange={(size) => {
+                    setPageSize(size);
+                    setPage(1);
+                  }}
+                />
+              </>
             )}
           </CardContent>
         </Card>

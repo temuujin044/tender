@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { DataPagination } from '@/components/data-pagination';
 import {
   Select,
   SelectContent,
@@ -63,6 +64,8 @@ export default function MyTendersPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
   const [tab, setTab] = useState('all');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
     const user = getStoredUser();
@@ -107,6 +110,14 @@ export default function MyTendersPage() {
       }),
     [search, status, submissions, tab]
   );
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const visibleSubmissions = useMemo(
+    () => filtered.slice((page - 1) * pageSize, page * pageSize),
+    [filtered, page, pageSize]
+  );
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
   const activeCount = submissions.filter((item) =>
     ['submitted', 'under-review'].includes(item.status)
@@ -150,7 +161,13 @@ export default function MyTendersPage() {
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="border-b border-slate-100">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-              <Tabs value={tab} onValueChange={setTab}>
+              <Tabs
+                value={tab}
+                onValueChange={(value) => {
+                  setTab(value);
+                  setPage(1);
+                }}
+              >
                 <TabsList>
                   <TabsTrigger value="all">Бүгд</TabsTrigger>
                   <TabsTrigger value="active">Идэвхтэй</TabsTrigger>
@@ -162,12 +179,21 @@ export default function MyTendersPage() {
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <Input
                     value={search}
-                    onChange={(event) => setSearch(event.target.value)}
+                    onChange={(event) => {
+                      setSearch(event.target.value);
+                      setPage(1);
+                    }}
                     placeholder="Код, нэр, багцаар хайх"
                     className="pl-9"
                   />
                 </div>
-                <Select value={status} onValueChange={setStatus}>
+                <Select
+                  value={status}
+                  onValueChange={(value) => {
+                    setStatus(value);
+                    setPage(1);
+                  }}
+                >
                   <SelectTrigger className="sm:w-44">
                     <SelectValue placeholder="Төлөв" />
                   </SelectTrigger>
@@ -184,59 +210,72 @@ export default function MyTendersPage() {
           </CardHeader>
           <CardContent className="p-0">
             {filtered.length ? (
-              <div className="divide-y divide-slate-100">
-                {filtered.map((submission) => {
-                  const config = statusConfig[submission.status];
-                  const Icon = config.icon;
-                  return (
-                    <div
-                      key={submission.id}
-                      className="flex flex-col gap-5 p-6 transition-colors hover:bg-slate-50 lg:flex-row lg:items-center"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge className={config.className}>
-                            <Icon className="mr-1 h-3 w-3" />
-                            {config.label}
-                          </Badge>
-                          <span className="text-sm font-medium text-slate-500">
-                            {submission.tenderCode}
-                          </span>
-                          <span className="text-xs text-slate-400">Q-{submission.id}</span>
+              <>
+                <div className="divide-y divide-slate-100">
+                  {visibleSubmissions.map((submission) => {
+                    const config = statusConfig[submission.status];
+                    const Icon = config.icon;
+                    return (
+                      <div
+                        key={submission.id}
+                        className="flex flex-col gap-5 p-6 transition-colors hover:bg-slate-50 lg:flex-row lg:items-center"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge className={config.className}>
+                              <Icon className="mr-1 h-3 w-3" />
+                              {config.label}
+                            </Badge>
+                            <span className="text-sm font-medium text-slate-500">
+                              {submission.tenderCode}
+                            </span>
+                            <span className="text-xs text-slate-400">Q-{submission.id}</span>
+                          </div>
+                          <h2 className="mt-2 font-semibold text-slate-900">{submission.title}</h2>
+                          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-500">
+                            <span className="flex items-center gap-1.5">
+                              <Building2 className="h-3.5 w-3.5" />
+                              {submission.batchName}
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <Calendar className="h-3.5 w-3.5" />
+                              Саналын огноо: {submission.submittedAt || 'Тодорхойгүй'}
+                            </span>
+                          </div>
                         </div>
-                        <h2 className="mt-2 font-semibold text-slate-900">{submission.title}</h2>
-                        <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-500">
-                          <span className="flex items-center gap-1.5">
-                            <Building2 className="h-3.5 w-3.5" />
-                            {submission.batchName}
-                          </span>
-                          <span className="flex items-center gap-1.5">
-                            <Calendar className="h-3.5 w-3.5" />
-                            Саналын огноо: {submission.submittedAt || 'Тодорхойгүй'}
-                          </span>
+                        <div className="flex items-center justify-between gap-5 lg:justify-end">
+                          <div className="lg:text-right">
+                            <p className="text-xs text-slate-500">Үнийн санал</p>
+                            <p className="mt-1 text-lg font-bold text-slate-900">
+                              {formatMoney(submission.quoteAmount)}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              Хүргэлт: {submission.deliveryDays} хоног
+                            </p>
+                          </div>
+                          <Link href={`/tenders/${submission.tenderId}`}>
+                            <Button variant="outline" size="sm">
+                              Дэлгэрэнгүй
+                              <ExternalLink className="ml-2 h-3.5 w-3.5" />
+                            </Button>
+                          </Link>
                         </div>
                       </div>
-                      <div className="flex items-center justify-between gap-5 lg:justify-end">
-                        <div className="lg:text-right">
-                          <p className="text-xs text-slate-500">Үнийн санал</p>
-                          <p className="mt-1 text-lg font-bold text-slate-900">
-                            {formatMoney(submission.quoteAmount)}
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            Хүргэлт: {submission.deliveryDays} хоног
-                          </p>
-                        </div>
-                        <Link href={`/tenders/${submission.tenderId}`}>
-                          <Button variant="outline" size="sm">
-                            Дэлгэрэнгүй
-                            <ExternalLink className="ml-2 h-3.5 w-3.5" />
-                          </Button>
-                        </Link>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+                <DataPagination
+                  page={page}
+                  pageSize={pageSize}
+                  totalItems={filtered.length}
+                  itemLabel="санал"
+                  onPageChange={setPage}
+                  onPageSizeChange={(size) => {
+                    setPageSize(size);
+                    setPage(1);
+                  }}
+                />
+              </>
             ) : (
               <div className="p-16 text-center">
                 <FileText className="mx-auto h-10 w-10 text-slate-300" />

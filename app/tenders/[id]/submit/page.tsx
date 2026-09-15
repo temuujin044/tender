@@ -318,10 +318,7 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
                   <Package className="h-5 w-5 text-orange-500" />
                   Оролцох багцаа сонгох
                 </CardTitle>
-                <CardDescription>
-                  Backend-ийн TBLTENDERBATCH бүтэцтэй ижил — багц бүрд тусдаа үнийн санал
-                  хадгалагдана.
-                </CardDescription>
+                <CardDescription>Багц бүрд тусдаа үнийн санал хадгалагдана.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-3">

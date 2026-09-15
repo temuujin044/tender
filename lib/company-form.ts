@@ -5,7 +5,7 @@ export type CompanyFormData = {
   registrationNumber: string;
   isVatPayer: boolean;
   companyStatus: string;
-  businessDirection: string;
+  businessDirections: string[];
   foundedDate: string;
   companyAddress: string;
   companyPhone: string;
@@ -33,7 +33,7 @@ export const emptyCompanyFormData: CompanyFormData = {
   registrationNumber: '',
   isVatPayer: false,
   companyStatus: '',
-  businessDirection: '',
+  businessDirections: [],
   foundedDate: '',
   companyAddress: '',
   companyPhone: '',
@@ -55,18 +55,66 @@ export const entityTypeOptions: SelectOption[] = [
   { value: 'foreign', label: 'Гадаад' },
 ];
 
+const isoCountryCodes = `
+AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ
+BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ
+CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ
+DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR
+GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY
+HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP
+KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY
+MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ
+NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY
+QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ
+TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ
+VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW
+`
+  .trim()
+  .split(/\s+/);
+
+const mongolianRegionNames = new Intl.DisplayNames(['mn-MN'], { type: 'region' });
+const englishRegionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+const generatedCountryOptions = isoCountryCodes.map((code) => ({
+  value: code.toLowerCase(),
+  label: mongolianRegionNames.of(code) || englishRegionNames.of(code) || code,
+}));
+
 export const countryOptions: SelectOption[] = [
-  { value: 'mn', label: 'Монгол' },
-  { value: 'cn', label: 'БНХАУ' },
-  { value: 'ru', label: 'ОХУ' },
-  { value: 'kr', label: 'БНСУ' },
-  { value: 'jp', label: 'Япон' },
-  { value: 'us', label: 'АНУ' },
-  { value: 'de', label: 'ХБНГУ' },
-  { value: 'kz', label: 'Казахстан' },
-  { value: 'sg', label: 'Сингапур' },
-  { value: 'other', label: 'Бусад' },
+  ...generatedCountryOptions.filter((option) => option.value === 'mn'),
+  ...generatedCountryOptions
+    .filter((option) => option.value !== 'mn')
+    .sort((left, right) => left.label.localeCompare(right.label, 'mn')),
 ];
+
+const legacyCountryAliases: Record<string, string> = {
+  монгол: 'mn',
+  'монгол улс': 'mn',
+  бнхау: 'cn',
+  хятад: 'cn',
+  оху: 'ru',
+  орос: 'ru',
+  бнсу: 'kr',
+  солонгос: 'kr',
+  'өмнөд солонгос': 'kr',
+  ану: 'us',
+  хбнгу: 'de',
+};
+
+export function countryValueFromStoredName(value: string) {
+  const normalized = value.trim().toLocaleLowerCase('mn');
+  if (!normalized) return '';
+  if (isoCountryCodes.includes(normalized.toUpperCase())) return normalized;
+  if (legacyCountryAliases[normalized]) return legacyCountryAliases[normalized];
+  return (
+    countryOptions.find((option) => {
+      const code = option.value.toUpperCase();
+      return (
+        option.label.toLocaleLowerCase('mn') === normalized ||
+        englishRegionNames.of(code)?.toLowerCase() === normalized
+      );
+    })?.value ?? ''
+  );
+}
 
 export const companyStatusOptions: SelectOption[] = [
   { value: 'new', label: 'Шинэ бүртгэл' },
@@ -86,8 +134,8 @@ export function validateCompanyFields(formData: CompanyFormData) {
   if (!formData.companyName.trim()) errors.companyName = 'Компанийн нэр шаардлагатай';
   if (!formData.registrationNumber.trim())
     errors.registrationNumber = 'Регистрийн дугаар шаардлагатай';
-  if (!formData.businessDirection.trim())
-    errors.businessDirection = 'Үйл ажиллагааны чиглэл шаардлагатай';
+  if (!formData.businessDirections.length)
+    errors.businessDirections = 'Үйл ажиллагааны чиглэл шаардлагатай';
   if (!formData.foundedDate) errors.foundedDate = 'Компанийн байгуулагдсан огноо шаардлагатай';
   if (!formData.companyAddress.trim()) errors.companyAddress = 'Компанийн хаяг шаардлагатай';
   if (!formData.companyPhone.trim()) errors.companyPhone = 'Байгууллагын утас шаардлагатай';

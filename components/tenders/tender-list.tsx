@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { DataPagination } from '@/components/data-pagination';
 import {
   Search,
   Filter,
@@ -21,8 +22,7 @@ import {
   ArrowUpDown,
   LayoutGrid,
   List,
-  ChevronLeft,
-  ChevronRight,
+  Tags,
 } from 'lucide-react';
 import { type Tender, statusConfig } from '@/lib/tender-data';
 
@@ -46,7 +46,7 @@ export function TenderList({
   const [sortBy, setSortBy] = useState('deadline');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 6;
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   useEffect(() => {
     setVisibleTenders(tenders);
@@ -60,6 +60,9 @@ export function TenderList({
     .filter((tender) => {
       const matchesSearch =
         tender.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        tender.activities.some((activity) =>
+          activity.toLowerCase().includes(searchQuery.toLowerCase())
+        ) ||
         `${tender.tenderCode ?? tender.id} ${tender.invitationCode}`
           .toLowerCase()
           .includes(searchQuery.toLowerCase());
@@ -85,11 +88,14 @@ export function TenderList({
       return 0;
     });
 
-  const totalPages = Math.ceil(filteredTenders.length / itemsPerPage);
+  const totalPages = Math.max(1, Math.ceil(filteredTenders.length / itemsPerPage));
   const paginatedTenders = filteredTenders.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
   );
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
 
   return (
     <div className="space-y-6">
@@ -157,7 +163,13 @@ export function TenderList({
             <div className="flex items-center justify-between border-t border-border/60 pt-4">
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Эрэмбэлэх:</span>
-                <Select value={sortBy} onValueChange={setSortBy}>
+                <Select
+                  value={sortBy}
+                  onValueChange={(value) => {
+                    setSortBy(value);
+                    setCurrentPage(1);
+                  }}
+                >
                   <SelectTrigger className="h-9 w-32">
                     <ArrowUpDown className="mr-2 h-3 w-3" />
                     <SelectValue />
@@ -241,6 +253,12 @@ export function TenderList({
                         <Building2 className="h-4 w-4" />
                         {tender.category}
                       </span>
+                      {tender.activities.length > 0 && (
+                        <span className="flex items-center gap-1.5">
+                          <Tags className="h-4 w-4" />
+                          {tender.activities.join(', ')}
+                        </span>
+                      )}
                       <span className="flex items-center gap-1.5">
                         <Calendar className="h-4 w-4" />
                         Хугацаа: {tender.deadline}
@@ -289,6 +307,12 @@ export function TenderList({
                       {tender.category}
                     </span>
                   </div>
+                  {tender.activities.length > 0 && (
+                    <div className="flex items-start gap-1.5">
+                      <Tags className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span className="line-clamp-2">{tender.activities.join(', ')}</span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
                       <Calendar className="h-3.5 w-3.5" />
@@ -308,51 +332,18 @@ export function TenderList({
         </div>
       )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-border/60 pt-6">
-          <p className="text-sm text-muted-foreground">
-            {(currentPage - 1) * itemsPerPage + 1}-с{' '}
-            {Math.min(currentPage * itemsPerPage, filteredTenders.length)} хүртэл{' '}
-            {filteredTenders.length} үр дүнгээс
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-              disabled={currentPage === 1}
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Өмнөх
-            </Button>
-            <div className="flex items-center gap-1">
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                <Button
-                  key={page}
-                  variant={currentPage === page ? 'default' : 'ghost'}
-                  size="sm"
-                  className={`h-8 w-8 p-0 ${
-                    currentPage === page ? 'bg-primary text-primary-foreground' : ''
-                  }`}
-                  onClick={() => setCurrentPage(page)}
-                >
-                  {page}
-                </Button>
-              ))}
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
-              disabled={currentPage === totalPages}
-            >
-              Дараах
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
+      <DataPagination
+        page={currentPage}
+        pageSize={itemsPerPage}
+        totalItems={filteredTenders.length}
+        itemLabel="тендер"
+        onPageChange={setCurrentPage}
+        onPageSizeChange={(size) => {
+          setItemsPerPage(size);
+          setCurrentPage(1);
+        }}
+        className="rounded-lg border border-border/60 bg-white"
+      />
     </div>
   );
 }

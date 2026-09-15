@@ -88,15 +88,19 @@ export function Navigation() {
         </nav>
 
         <div className="hidden items-center gap-3 md:flex">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="rounded-full text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
-          >
-            <span className="sr-only">Мэдэгдэл харах</span>
-            <Bell className="h-5 w-5" />
-          </Button>
-          <div className="mx-1 h-5 w-px bg-border/60" />
+          {isLoggedIn && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-full text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
+              >
+                <span className="sr-only">Мэдэгдэл харах</span>
+                <Bell className="h-5 w-5" />
+              </Button>
+              <div className="mx-1 h-5 w-px bg-border/60" />
+            </>
+          )}
 
           {isReady && isAuthenticated ? (
             <>
@@ -136,10 +140,12 @@ export function Navigation() {
         </div>
 
         <div className="flex items-center gap-4 md:hidden">
-          <Button variant="ghost" size="icon" className="rounded-full">
-            <span className="sr-only">Мэдэгдэл</span>
-            <Bell className="h-5 w-5 text-foreground/80" />
-          </Button>
+          {isLoggedIn && (
+            <Button variant="ghost" size="icon" className="rounded-full">
+              <span className="sr-only">Мэдэгдэл</span>
+              <Bell className="h-5 w-5 text-foreground/80" />
+            </Button>
+          )}
 
           <button
             className="group rounded-md p-2 text-foreground/70 transition-colors hover:bg-secondary hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"

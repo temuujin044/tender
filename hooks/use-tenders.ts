@@ -1,10 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { fetchTenderCatalog, fetchTenderDetail } from '@/lib/api';
+import { fetchTenderCatalog, fetchTenderDetail, type ActivityDiscoveryScope } from '@/lib/api';
 import type { Tender } from '@/lib/tender-data';
 
-export function useTenderCatalog(scope: 'all' | 'open' | 'result' | 'saved' = 'all') {
+export function useTenderCatalog(
+  scope: 'all' | 'open' | 'result' | 'saved' = 'all',
+  discoveryScope: ActivityDiscoveryScope = 'matching'
+) {
   const [tenders, setTenders] = useState<Tender[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -13,7 +16,7 @@ export function useTenderCatalog(scope: 'all' | 'open' | 'result' | 'saved' = 'a
     setLoading(true);
     setError('');
     try {
-      setTenders(await fetchTenderCatalog(scope));
+      setTenders(await fetchTenderCatalog(scope, discoveryScope));
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -23,7 +26,7 @@ export function useTenderCatalog(scope: 'all' | 'open' | 'result' | 'saved' = 'a
     } finally {
       setLoading(false);
     }
-  }, [scope]);
+  }, [discoveryScope, scope]);
 
   useEffect(() => {
     void reload();
