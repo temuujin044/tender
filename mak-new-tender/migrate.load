@@ -1,0 +1,10 @@
+LOAD DATABASE
+    FROM mysql://root@127.0.0.1:3306/maktender
+    INTO postgresql://postgres:1234@127.0.0.1:5433/maktender
+
+WITH
+    include no drop,
+    create tables,
+    create indexes,
+    reset sequences,
+    foreign keys;
