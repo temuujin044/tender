@@ -62,6 +62,7 @@ import {
   type EmployeeTenderOptions,
 } from '@/lib/api';
 import { getStoredUser } from '@/lib/auth';
+import { standardVendorDocuments } from '@/lib/tender-documents';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 import { TenderWorkflowPanel } from '@/components/employee/tender-workflow';
 
@@ -69,10 +70,9 @@ const steps = [
   { id: 1, label: 'Үндсэн мэдээлэл', icon: Settings2 },
   { id: 2, label: 'Урилга, хугацаа', icon: CalendarClock },
   { id: 3, label: 'Багц', icon: Layers3 },
-  { id: 4, label: 'Шаардлага, шалгуур', icon: ClipboardCheck },
-  { id: 5, label: 'Баримт бичиг', icon: FileCheck2 },
-  { id: 6, label: 'Үнэлгээний хороо', icon: UsersRound },
-  { id: 7, label: 'Хянаж нийтлэх', icon: Send },
+  { id: 4, label: 'Баримт бичиг', icon: ClipboardCheck },
+  { id: 5, label: 'Үнэлгээний хороо', icon: UsersRound },
+  { id: 6, label: 'Хянаж нийтлэх', icon: Send },
 ];
 
 const roleNames: Record<EmployeeMember['role'], string> = {
@@ -106,7 +106,6 @@ function hasDraftContent(tender: EmployeeTender) {
     tender.openDate ||
     tender.evaluationDate ||
     tender.description.trim() ||
-    tender.note.trim() ||
     tender.batches.length ||
     tender.requirements.length ||
     tender.criteria.length ||
@@ -153,12 +152,12 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
   const [employees, setEmployees] = useState<EmployeeDirectoryItem[]>([]);
   const [permission, setPermission] = useState<EmployeePermission | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [batchDraft, setBatchDraft] = useState({ code: '', name: '' });
+  const [batchDraft, setBatchDraft] = useState({ code: '', name: '', budget: '' });
   const [requirementDraft, setRequirementDraft] = useState<{
     name: string;
     type: EmployeeRequirement['type'];
     documentRequired: boolean;
-  }>({ name: '', type: 'general', documentRequired: true });
+  }>({ name: '', type: 'general', documentRequired: false });
   const [criterionDraft, setCriterionDraft] = useState<{
     name: string;
     type: EmployeeCriterion['type'];
@@ -173,6 +172,7 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
     Boolean(
       batchDraft.code ||
       batchDraft.name ||
+      batchDraft.budget ||
       requirementDraft.name ||
       criterionDraft.name ||
       criterionDraft.weight ||
@@ -242,8 +242,14 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
   const completion = useMemo(() => (tender ? getTenderCompletion(tender) : null), [tender]);
   const canManageTender = Boolean(permission?.isAdmin || permission?.isTenderManage);
   const canManageCommittee = Boolean(permission?.isAdmin || permission?.isCommitteeManage);
-  const canEditCurrentSection = editable && (step === 6 ? canManageCommittee : canManageTender);
+  const canEditCurrentSection = editable && (step === 5 ? canManageCommittee : canManageTender);
   const criteriaWeight = tender?.criteria.reduce((sum, item) => sum + item.weight, 0) ?? 0;
+  const batchBudgetTotal = tender?.batches.reduce((sum, item) => sum + item.budget, 0) ?? 0;
+  const showDocumentSection = Boolean(
+    requirementDraft.documentRequired ||
+    tender?.requirements.some((item) => item.documentRequired) ||
+    tender?.documents.length
+  );
   const committeeEmployees = useMemo(() => {
     const normalized = employeeQuery.trim().toLowerCase();
     if (!normalized) return employees.slice(0, 50);
@@ -303,16 +309,20 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
       if (tender.acceptDate && tender.openDate && tender.acceptDate >= tender.openDate)
         next.openDate = 'Нээх хугацаа санал хүлээн авах хугацаанаас хойш байна.';
     }
-    if (step === 3 && tender.batches.length === 0) next.batches = 'Багадаа нэг багц нэмнэ үү.';
+    if (step === 3) {
+      if (tender.batches.length === 0) next.batches = 'Багадаа нэг багц нэмнэ үү.';
+      else if (tender.batches.some((batch) => !Number.isFinite(batch.budget) || batch.budget <= 0))
+        next.batches = 'Багц бүрийн төсөвт үнийг 0-ээс их дүнгээр оруулна уу.';
+      else if (batchBudgetTotal !== tender.budget)
+        next.batches = `Багцын нийт төсөв (${formatEmployeeMoney(batchBudgetTotal)}) тендерийн нийт төсөвтэй (${formatEmployeeMoney(tender.budget)}) тэнцүү байх ёстой.`;
+    }
     if (step === 4) {
       if (!tender.requirements.length) next.requirements = 'Багадаа нэг шаардлага нэмнэ үү.';
       if (!tender.criteria.length) next.criteria = 'Багадаа нэг шалгуур нэмнэ үү.';
       else if (criteriaWeight !== 100)
         next.criteria = `Шалгуурын нийт жин 100% байх ёстой. Одоогоор ${criteriaWeight}%.`;
     }
-    if (step === 5 && !tender.documents.length)
-      next.documents = 'Багадаа нэг тендерийн баримт хавсаргана уу.';
-    if (step === 6) {
+    if (step === 5) {
       for (const role of ['secretary', 'chair', 'internal-control'] as const)
         if (!tender.members.some((member) => member.role === role))
           next.members = 'Нарийн бичиг, Дарга, Дотоод хяналтын гишүүд заавал байна.';
@@ -323,7 +333,7 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
 
   const saveDraft = async (quiet = false) => {
     if (!editable) return null;
-    if (step === 6 && canManageCommittee && !canManageTender) {
+    if (step === 5 && canManageCommittee && !canManageTender) {
       if (!tender.invitationId) {
         setLoadError('Хороо бүрдүүлэхийн өмнө тендерийн ноорог үүссэн байх шаардлагатай.');
         return null;
@@ -414,17 +424,34 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
     if (!validateCurrentStep()) return;
     const savedTender = await saveDraft(true);
     if (!savedTender) return;
-    setStep((current) => Math.min(current + 1, 7));
+    setStep((current) => Math.min(current + 1, 6));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const addBatch = () => {
-    if (!batchDraft.code.trim() || !batchDraft.name.trim()) return;
+    const budget = Number(batchDraft.budget);
+    if (
+      !batchDraft.code.trim() ||
+      !batchDraft.name.trim() ||
+      !Number.isFinite(budget) ||
+      budget <= 0
+    ) {
+      setErrors((current) => ({
+        ...current,
+        batches: 'Багцын код, нэр болон 0-ээс их төсөвт үнийг бүрэн оруулна уу.',
+      }));
+      return;
+    }
     update('batches', [
       ...tender.batches,
-      { id: `B-${Date.now()}`, code: batchDraft.code.trim(), name: batchDraft.name.trim() },
+      {
+        id: `B-${Date.now()}`,
+        code: batchDraft.code.trim(),
+        name: batchDraft.name.trim(),
+        budget,
+      },
     ]);
-    setBatchDraft({ code: '', name: '' });
+    setBatchDraft({ code: '', name: '', budget: '' });
   };
   const addRequirement = () => {
     if (!requirementDraft.name.trim()) return;
@@ -432,7 +459,7 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
       ...tender.requirements,
       { id: `R-${Date.now()}`, ...requirementDraft, name: requirementDraft.name.trim() },
     ]);
-    setRequirementDraft({ name: '', type: 'general', documentRequired: true });
+    setRequirementDraft({ name: '', type: 'general', documentRequired: false });
   };
   const addCriterion = () => {
     const weight = Number(criterionDraft.weight);
@@ -543,7 +570,7 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
               )}
             >
               <CheckCircle2 className="mr-1 inline h-4 w-4" />
-              Backend-д хадгаллаа
+              Хадгаллаа
             </span>
             <Button
               variant="outline"
@@ -774,13 +801,6 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
                         onChange={(event) => update('evaluationDate', event.target.value)}
                       />
                     </Field>
-                    <Field label="Урилгын тэмдэглэл">
-                      <Input
-                        value={tender.note}
-                        onChange={(event) => update('note', event.target.value)}
-                        placeholder="Нэмэлт нөхцөл"
-                      />
-                    </Field>
                   </div>
                   <div className="mt-6 flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
                     <CalendarClock className="mt-0.5 h-5 w-5 shrink-0" />
@@ -794,7 +814,7 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
                   title="Тендерийн багц"
                   description=" Нийлүүлэгч багц тус бүрээр үнийн санал өгнө."
                 >
-                  <div className="grid gap-3 sm:grid-cols-[180px_1fr_auto]">
+                  <div className="grid gap-3 lg:grid-cols-[160px_1fr_220px_auto]">
                     <Input
                       value={batchDraft.code}
                       onChange={(event) =>
@@ -809,6 +829,16 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
                       }
                       placeholder="Багцын нэр"
                     />
+                    <Input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={batchDraft.budget}
+                      onChange={(event) =>
+                        setBatchDraft((current) => ({ ...current, budget: event.target.value }))
+                      }
+                      placeholder="Төсөвт үнэ (₮)"
+                    />
                     <Button
                       type="button"
                       onClick={addBatch}
@@ -821,18 +851,83 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
                   {errors.batches && <ErrorText>{errors.batches}</ErrorText>}
                   <div className="mt-5 space-y-3">
                     {tender.batches.map((batch) => (
-                      <Row
+                      <div
                         key={batch.id}
-                        title={batch.name}
-                        meta={batch.code}
-                        onDelete={() =>
-                          update(
-                            'batches',
-                            tender.batches.filter((item) => item.id !== batch.id)
-                          )
-                        }
-                      />
+                        className="flex flex-col gap-3 rounded-xl border border-slate-200 p-4 sm:flex-row sm:items-center"
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
+                          <Check className="h-4 w-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-slate-900">{batch.name}</p>
+                          <p className="mt-1 text-xs text-slate-500">{batch.code}</p>
+                        </div>
+                        <div className="w-full space-y-1 sm:w-56">
+                          <Label
+                            htmlFor={`batch-budget-${batch.id}`}
+                            className="text-xs text-slate-500"
+                          >
+                            Төсөвт үнэ (₮)
+                          </Label>
+                          <Input
+                            id={`batch-budget-${batch.id}`}
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={batch.budget || ''}
+                            onChange={(event) =>
+                              update(
+                                'batches',
+                                tender.batches.map((item) =>
+                                  item.id === batch.id
+                                    ? { ...item, budget: Number(event.target.value) }
+                                    : item
+                                )
+                              )
+                            }
+                            placeholder="0"
+                          />
+                          <p className="text-xs font-medium text-orange-600">
+                            {formatEmployeeMoney(batch.budget)}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() =>
+                            update(
+                              'batches',
+                              tender.batches.filter((item) => item.id !== batch.id)
+                            )
+                          }
+                        >
+                          <Trash2 className="h-4 w-4 text-slate-400" />
+                        </Button>
+                      </div>
                     ))}
+                    {tender.batches.length > 0 && (
+                      <div className="space-y-1 border-t border-slate-200 pt-3 text-sm">
+                        <div className="flex justify-end">
+                          <span className="text-slate-500">Багцын нийт төсөв:</span>
+                          <span
+                            className={cn(
+                              'ml-2 font-semibold',
+                              batchBudgetTotal === tender.budget
+                                ? 'text-emerald-700'
+                                : 'text-red-600'
+                            )}
+                          >
+                            {formatEmployeeMoney(batchBudgetTotal)}
+                          </span>
+                        </div>
+                        {batchBudgetTotal !== tender.budget && (
+                          <p className="text-right text-xs text-red-600">
+                            Тендерийн нийт төсөв {formatEmployeeMoney(tender.budget)} байна.
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </Section>
               )}
@@ -976,46 +1071,74 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
                       />
                     </div>
                   </Section>
+                  {showDocumentSection && (
+                    <Section
+                      title="Баримт бичгийн бүрдүүлэлт"
+                      description="Нийлүүлэгч стандарт баримт бүрийг тусад нь хавсаргана. Тендерт зориулсан нэмэлт загвар, зааврыг сонголтоор оруулж болно."
+                    >
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {standardVendorDocuments.map((document, index) => (
+                          <div
+                            key={document.id}
+                            className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4"
+                          >
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-sm font-semibold text-orange-600 shadow-sm">
+                              {index + 1}
+                            </span>
+                            <div>
+                              <p className="text-sm font-medium text-slate-900">{document.name}</p>
+                              <p className="mt-1 text-xs text-slate-500">{document.description}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
+                        <div className="flex items-start gap-3">
+                          <FileCheck2 className="mt-0.5 h-5 w-5 shrink-0" />
+                          <p>
+                            Стандарт бүрдүүлэлтээс гадна тусгай маягт, техникийн загвар эсвэл нэмэлт
+                            заавар шаардлагатай бол доорх хэсэгт хавсаргана.
+                          </p>
+                        </div>
+                      </div>
+                      <p className="mt-5 text-sm font-semibold text-slate-900">
+                        Тусгай хэрэгцээт нэмэлт материал
+                        <span className="ml-2 font-normal text-slate-500">(заавал биш)</span>
+                      </p>
+                      <label className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-10 text-center hover:border-orange-300">
+                        <Upload className="mx-auto h-9 w-9 text-slate-400" />
+                        <p className="mt-3 text-sm font-medium text-slate-700">
+                          Файл сонгох эсвэл энд чирж оруулах
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          PDF, DOCX, XLSX файлыг backend storage-д хадгална
+                        </p>
+                        <input
+                          type="file"
+                          multiple
+                          accept=".pdf,.doc,.docx,.xls,.xlsx"
+                          className="hidden"
+                          onChange={uploadDocuments}
+                        />
+                      </label>
+                      {errors.documents && <ErrorText>{errors.documents}</ErrorText>}
+                      <div className="mt-5 space-y-3">
+                        {tender.documents.map((document) => (
+                          <Row
+                            key={document.id}
+                            title={document.name}
+                            meta={`${document.type.toUpperCase()} • ${document.size}`}
+                            icon={<FileText className="h-5 w-5 text-orange-500" />}
+                            onDelete={() => void removeDocument(document)}
+                          />
+                        ))}
+                      </div>
+                    </Section>
+                  )}
                 </div>
               )}
 
               {step === 5 && (
-                <Section
-                  title="Тендерийн баримт бичиг"
-                  description="Техникийн тодорхойлолт, маягт болон гэрээний төслийг хавсаргана."
-                >
-                  <label className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-10 text-center hover:border-orange-300">
-                    <Upload className="mx-auto h-9 w-9 text-slate-400" />
-                    <p className="mt-3 text-sm font-medium text-slate-700">
-                      Файл сонгох эсвэл энд чирж оруулах
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      PDF, DOCX, XLSX файлыг backend storage-д хадгална
-                    </p>
-                    <input
-                      type="file"
-                      multiple
-                      accept=".pdf,.doc,.docx,.xls,.xlsx"
-                      className="hidden"
-                      onChange={uploadDocuments}
-                    />
-                  </label>
-                  {errors.documents && <ErrorText>{errors.documents}</ErrorText>}
-                  <div className="mt-5 space-y-3">
-                    {tender.documents.map((document) => (
-                      <Row
-                        key={document.id}
-                        title={document.name}
-                        meta={`${document.type.toUpperCase()} • ${document.size}`}
-                        icon={<FileText className="h-5 w-5 text-orange-500" />}
-                        onDelete={() => void removeDocument(document)}
-                      />
-                    ))}
-                  </div>
-                </Section>
-              )}
-
-              {step === 6 && (
                 <Section
                   title="Үнэлгээний хороо"
                   description="Нээх дараалал: Нарийн бичиг → Дарга → Дотоод хяналт."
@@ -1125,7 +1248,7 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
                 </Section>
               )}
 
-              {step === 7 && (
+              {step === 6 && (
                 <Section
                   title="Хянаж нийтлэх"
                   description="Бүх хэсгийг шалгасны дараа нийлүүлэгчдэд тендерийн урилгыг нийтэлнэ."
@@ -1177,6 +1300,10 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
                         value={tender.acceptDate.replace('T', ' ') || '—'}
                       />
                       <Summary label="Багц" value={`${tender.batches.length}`} />
+                      <Summary
+                        label="Багцын нийт төсөв"
+                        value={formatEmployeeMoney(batchBudgetTotal)}
+                      />
                       <Summary label="Шалгуурын жин" value={`${criteriaWeight}%`} />
                     </dl>
                   </div>
@@ -1210,7 +1337,7 @@ export default function EmployeeTenderEditorPage({ params }: { params: Promise<{
                   <ArrowLeft className="mr-2 h-4 w-4" />
                   Өмнөх
                 </Button>
-                {step < 7 && (
+                {step < 6 && (
                   <Button onClick={goNext} className="bg-orange-500 hover:bg-orange-600">
                     Хадгалаад үргэлжлүүлэх
                     <ArrowRight className="ml-2 h-4 w-4" />

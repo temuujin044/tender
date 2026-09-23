@@ -156,6 +156,39 @@ export function TenderWorkflowPanel({
               </Button>
             ))}
         </div>
+        {workflow?.identitiesSealed && workflow.submissionSummary && (
+          <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Ирүүлсэн санал</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Нийлүүлэгчийн нэр санал нээх хүртэл нууц байна.
+                </p>
+              </div>
+              <Badge variant="secondary">
+                Нийт {workflow.submissionSummary.totalCompanies} компани
+              </Badge>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {workflow.submissionSummary.batches.map((batch) => (
+                <div
+                  key={batch.batchid}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-slate-900">
+                      {batch.name || 'Нэргүй багц'}
+                    </p>
+                    {batch.code && <p className="text-xs text-slate-500">{batch.code}</p>}
+                  </div>
+                  <Badge variant="outline" className="shrink-0">
+                    {batch.companyCount} компани
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {workflow && workflow.vendors.length > 0 && (
           <div className="divide-y rounded-md border">
             {workflow.vendors.map((v) => (

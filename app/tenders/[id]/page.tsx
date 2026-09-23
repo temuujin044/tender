@@ -153,7 +153,7 @@ export default function TenderDetailPage({ params }: { params: Promise<{ id: str
       setComments(normalizeComments(await fetchComments(tender.invitationId, user.vendorId)));
       setCommentTitle('');
       setCommentMessage('');
-      setNotice('Тодруулга backend-д хадгалагдлаа.');
+      setNotice('Тодруулга хадгалагдлаа.');
     } catch (requestError) {
       setNotice(
         requestError instanceof Error ? requestError.message : 'Тодруулга хадгалагдсангүй.'
@@ -313,7 +313,7 @@ export default function TenderDetailPage({ params }: { params: Promise<{ id: str
                         <p className="font-medium text-slate-900">
                           {submission.batchname || 'Тендерийн нийт санал'}
                         </p>
-                        <Badge variant="secondary">Backend-д хадгалсан</Badge>
+                        <Badge variant="secondary">Хадгалсан</Badge>
                       </div>
                       <p className="mt-2 text-lg font-bold text-slate-900">
                         {formatQuoteMoney(submission.qouteamount)}

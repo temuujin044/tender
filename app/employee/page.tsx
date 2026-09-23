@@ -267,7 +267,7 @@ export default function EmployeeDashboard() {
           <Stat
             label="Нийт тендер"
             value={tenders.length}
-            detail="Backend-д бүртгэлтэй урилга"
+            detail="Бүртгэлтэй урилга"
             icon={Files}
             tone="bg-slate-100 text-slate-700"
             loading={loading}

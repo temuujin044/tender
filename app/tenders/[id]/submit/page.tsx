@@ -32,9 +32,16 @@ import {
 import { useAuthState } from '@/hooks/use-auth-state';
 import { useTenderDetail } from '@/hooks/use-tenders';
 import { getLoginRedirectPath, getStoredUser } from '@/lib/auth';
-import { fetchQuotes, joinTender, saveQuote, uploadTenderJoinDocument } from '@/lib/api';
+import {
+  fetchEvaluationDocuments,
+  fetchQuotes,
+  joinTender,
+  saveQuote,
+  uploadTenderJoinDocument,
+} from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { statusConfig } from '@/lib/tender-data';
+import { standardVendorDocuments } from '@/lib/tender-documents';
 
 type QuoteForm = {
   batchId: string;
@@ -44,6 +51,8 @@ type QuoteForm = {
   deliveryDays: string;
   confirm: boolean;
 };
+
+type SelectedDocument = { name: string; size: string; file?: File };
 
 const steps = [
   { id: 1, label: 'Оролцох багц' },
@@ -69,7 +78,8 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
   const [step, setStep] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
   const [participating, setParticipating] = useState(false);
-  const [files, setFiles] = useState<{ name: string; size: string; file?: File }[]>([]);
+  const [standardFiles, setStandardFiles] = useState<Record<number, SelectedDocument>>({});
+  const [files, setFiles] = useState<SelectedDocument[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [form, setForm] = useState<QuoteForm>({
     batchId: '',
@@ -82,8 +92,12 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
 
   const isOpen = tender?.status === 'open' || tender?.status === 'closing-soon';
   const selectedBatch = tender?.batches.find((batch) => String(batch.id) === form.batchId);
-  const requiredDocumentCount =
-    tender?.requirements.filter((item) => item.documentRequired).length ?? 0;
+  const requiresDocuments = tender?.requirements.some((item) => item.documentRequired) ?? false;
+  const activeSteps = useMemo(
+    () => (requiresDocuments ? steps : steps.filter((item) => item.id !== 3)),
+    [requiresDocuments]
+  );
+  const currentStepIndex = activeSteps.findIndex((item) => item.id === step);
 
   useEffect(() => {
     if (isReady && !isAuthenticated) router.replace(getLoginRedirectPath(`/tenders/${id}/submit`));
@@ -93,8 +107,28 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
   useEffect(() => {
     const user = getStoredUser();
     if (!tender || user?.role !== 'vendor' || !user.vendorId) return;
-    void fetchQuotes(tender.invitationId, user.vendorId)
-      .then((quotes) => {
+    void Promise.all([
+      fetchQuotes(tender.invitationId, user.vendorId),
+      fetchEvaluationDocuments(tender.invitationId, user.vendorId),
+    ])
+      .then(([quotes, documents]) => {
+        setStandardFiles(
+          Object.fromEntries(
+            documents
+              .filter((document) =>
+                standardVendorDocuments.some(
+                  (standardDocument) => standardDocument.id === Number(document.requiretypeid)
+                )
+              )
+              .map((document) => [
+                Number(document.requiretypeid),
+                {
+                  name: document.filename || document.documentname || 'Баримт бичиг',
+                  size: 'Өмнө хавсаргасан',
+                },
+              ])
+          )
+        );
         const existing = quotes[0];
         if (!existing) return;
         setParticipating(true);
@@ -159,8 +193,12 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
       if (!form.deliveryDays || Number(form.deliveryDays) <= 0)
         next.deliveryDays = 'Хүргэлтийн хоногийг зөв оруулна уу.';
     }
-    if (step === 3 && files.length < requiredDocumentCount)
-      next.files = `Нотлох баримтаас багадаа ${requiredDocumentCount} файл хавсаргана уу.`;
+    if (
+      step === 3 &&
+      requiresDocuments &&
+      standardVendorDocuments.some((document) => !standardFiles[document.id])
+    )
+      next.files = 'Стандарт баримт бичиг бүрд тусдаа файл хавсаргана уу.';
     if (step === 4 && !form.confirm) next.confirm = 'Мэдээллийн үнэн зөвийг баталгаажуулна уу.';
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -168,17 +206,48 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
 
   const nextStep = () => {
     if (!validateStep()) return;
-    setStep((current) => Math.min(current + 1, 4));
+    const next = activeSteps[currentStepIndex + 1];
+    if (next) setStep(next.id);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const previousStep = () => {
+    const previous = activeSteps[currentStepIndex - 1];
+    if (previous) setStep(previous.id);
+  };
+
+  const validateSelectedFile = (file: File) => {
+    if (file.size > 10 * 1024 * 1024) {
+      setErrors((current) => ({ ...current, files: `${file.name} файл 10MB-аас их байна.` }));
+      return false;
+    }
+    return true;
+  };
+
+  const selectStandardFile = (
+    requirementTypeId: number,
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file || !validateSelectedFile(file)) return;
+    setStandardFiles((current) => ({
+      ...current,
+      [requirementTypeId]: {
+        name: file.name,
+        size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+        file,
+      },
+    }));
+    setErrors((current) => {
+      const next = { ...current };
+      delete next.files;
+      return next;
+    });
   };
 
   const uploadFiles = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(event.target.files ?? []);
-    const oversized = selected.find((file) => file.size > 10 * 1024 * 1024);
-    if (oversized) {
-      setErrors((current) => ({ ...current, files: `${oversized.name} файл 10MB-аас их байна.` }));
-      return;
-    }
+    if (!selected.every(validateSelectedFile)) return;
     setFiles((current) => [
       ...current,
       ...selected.map((file) => ({
@@ -196,6 +265,17 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (
+      requiresDocuments &&
+      standardVendorDocuments.some((document) => !standardFiles[document.id])
+    ) {
+      setErrors((current) => ({
+        ...current,
+        files: 'Стандарт баримт бичиг бүрд тусдаа файл хавсаргана уу.',
+      }));
+      setStep(3);
+      return;
+    }
     if (!validateStep() || !selectedBatch) return;
     const user = getStoredUser();
     if (!user?.vendorId) return router.push(getLoginRedirectPath(`/tenders/${id}/submit`));
@@ -207,6 +287,19 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
     });
     try {
       const existingQuotes = await fetchQuotes(tender.invitationId, user.vendorId);
+      for (const document of standardVendorDocuments) {
+        const selectedFile = standardFiles[document.id];
+        if (!requiresDocuments || !selectedFile?.file) continue;
+        await uploadTenderJoinDocument({
+          file: selectedFile.file,
+          invitationId: tender.invitationId,
+          tenderId: tender.tenderId,
+          vendorId: user.vendorId,
+          createdBy: user.username,
+          batchId: selectedBatch.id,
+          requirementTypeId: document.id,
+        });
+      }
       for (const selectedFile of files) {
         if (!selectedFile.file) continue;
         await uploadTenderJoinDocument({
@@ -275,32 +368,37 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
           </div>
         </div>
 
-        <div className="mb-8 grid grid-cols-4 gap-2">
-          {steps.map((item) => (
+        <div
+          className={cn(
+            'mb-8 grid gap-2',
+            activeSteps.length === 4 ? 'grid-cols-4' : 'grid-cols-3'
+          )}
+        >
+          {activeSteps.map((item, index) => (
             <button
               key={item.id}
               type="button"
-              onClick={() => item.id < step && setStep(item.id)}
+              onClick={() => index < currentStepIndex && setStep(item.id)}
               className="text-left"
             >
               <div
                 className={cn(
                   'h-1.5 rounded-full',
-                  item.id <= step ? 'bg-orange-500' : 'bg-slate-200'
+                  index <= currentStepIndex ? 'bg-orange-500' : 'bg-slate-200'
                 )}
               />
               <div className="mt-2 flex items-center gap-2">
                 <span
                   className={cn(
                     'flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold',
-                    item.id < step
+                    index < currentStepIndex
                       ? 'bg-orange-500 text-white'
-                      : item.id === step
+                      : index === currentStepIndex
                         ? 'bg-orange-100 text-orange-700'
                         : 'bg-slate-200 text-slate-500'
                   )}
                 >
-                  {item.id < step ? <Check className="h-3.5 w-3.5" /> : item.id}
+                  {index < currentStepIndex ? <Check className="h-3.5 w-3.5" /> : index + 1}
                 </span>
                 <span className="hidden text-sm font-medium text-slate-700 sm:inline">
                   {item.label}
@@ -337,6 +435,9 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
                       <div>
                         <p className="text-xs font-semibold text-orange-600">{batch.code}</p>
                         <p className="mt-1 font-medium text-slate-900">{batch.name}</p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          Төсөвт үнэ: {formatMoney(batch.budget)}
+                        </p>
                       </div>
                       <div
                         className={cn(
@@ -356,8 +457,8 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
                   <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
                   <p>
                     {participating
-                      ? 'Таны оролцоо backend-д бүртгэгдсэн байна.'
-                      : 'Баримт болон үнийн саналыг баталгаажуулах үед оролцоо backend-д бүртгэгдэнэ.'}
+                      ? 'Таны оролцоо бүртгэгдсэн байна.'
+                      : 'Баримт болон үнийн саналыг баталгаажуулах үед оролцоо бүртгэгдэнэ.'}
                   </p>
                 </div>
               </CardContent>
@@ -416,14 +517,74 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Upload className="h-5 w-5 text-orange-500" />
-                  Нотлох баримт хавсаргах
+                  Баримт бичгийн бүрдүүлэлт
                 </CardTitle>
                 <CardDescription>
-                  Шаардлагын дагуу багадаа {requiredDocumentCount} файл хавсаргана. Файл тус бүр
-                  10MB хүртэл.
+                  Стандарт баримт бүрийг тусдаа файлаар хавсаргана. Файл тус бүр 10MB хүртэл.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
+                <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                  <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+                  <p>
+                    Оруулсан мэдээлэл болон хавсаргасан баримт бичиг үнэн зөв байх ёстой. Зөрүүтэй,
+                    худал мэдээлэл бүртгэсэн тохиолдолд үнэлгээний оноо хасагдах боломжтой.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {standardVendorDocuments.map((document) => {
+                    const selectedFile = standardFiles[document.id];
+                    return (
+                      <div
+                        key={document.id}
+                        className={cn(
+                          'rounded-xl border p-4',
+                          selectedFile ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200'
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-900">{document.name}</p>
+                            <p className="mt-1 text-xs leading-5 text-slate-500">
+                              {document.description}
+                            </p>
+                          </div>
+                          {selectedFile && (
+                            <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
+                          )}
+                        </div>
+                        {selectedFile && (
+                          <div className="mt-3 rounded-lg bg-white/80 px-3 py-2">
+                            <p className="truncate text-xs font-medium text-slate-700">
+                              {selectedFile.name}
+                            </p>
+                            <p className="mt-0.5 text-xs text-slate-500">{selectedFile.size}</p>
+                          </div>
+                        )}
+                        <Button type="button" variant="outline" size="sm" className="mt-3" asChild>
+                          <label className="cursor-pointer">
+                            {selectedFile ? 'Файл солих' : 'Файл сонгох'}
+                            <input
+                              type="file"
+                              accept=".pdf,.doc,.docx,.xls,.xlsx"
+                              className="hidden"
+                              onChange={(event) => selectStandardFile(document.id, event)}
+                            />
+                          </label>
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">
+                    Тусгай хэрэгцээт нэмэлт баримт
+                    <span className="ml-2 font-normal text-slate-500">(заавал биш)</span>
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Тухайн тендерийн онцлогоос шалтгаалсан бусад нотлох файлыг энд нэмнэ.
+                  </p>
+                </div>
                 <div className="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-8 text-center">
                   <Upload className="mx-auto h-9 w-9 text-slate-400" />
                   <p className="mt-3 text-sm font-medium text-slate-700">
@@ -491,11 +652,18 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
               <CardContent className="space-y-6">
                 <dl className="grid gap-4 rounded-xl bg-slate-50 p-5 text-sm sm:grid-cols-2">
                   <Summary label="Багц" value={selectedBatch?.name ?? '—'} />
+                  <Summary
+                    label="Багцын төсөвт үнэ"
+                    value={selectedBatch ? formatMoney(selectedBatch.budget) : '—'}
+                  />
                   <Summary label="Үнийн санал" value={moneyPreview} />
                   <Summary label="Саналын огноо" value={form.quoteDate} />
                   <Summary label="Хүргэлтийн огноо" value={form.deliveryDate} />
                   <Summary label="Хүргэлтийн хугацаа" value={`${form.deliveryDays} хоног`} />
-                  <Summary label="Хавсаргасан файл" value={`${files.length} файл`} />
+                  <Summary
+                    label="Хавсаргасан файл"
+                    value={`${Object.keys(standardFiles).length + files.length} файл`}
+                  />
                 </dl>
                 <div className="flex items-start gap-3 rounded-xl border border-slate-200 p-4">
                   <Checkbox
@@ -506,7 +674,8 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
                   />
                   <Label htmlFor="confirm" className="cursor-pointer font-normal leading-6">
                     Оруулсан мэдээлэл, хавсаргасан баримт бичиг үнэн зөв бөгөөд тендерийн нөхцөлийг
-                    хүлээн зөвшөөрч байгаагаа баталж байна.
+                    хүлээн зөвшөөрч байгаагаа баталж байна. Мэдээлэл зөрүүтэй тохиолдолд үнэлгээний
+                    оноо хасагдаж болохыг ойлгосон.
                   </Label>
                 </div>
                 {errors.confirm && <p className="text-sm text-red-600">{errors.confirm}</p>}
@@ -525,7 +694,7 @@ export default function SubmitQuotePage({ params }: { params: Promise<{ id: stri
               type="button"
               variant="outline"
               disabled={step === 1 || isSaving}
-              onClick={() => setStep((current) => Math.max(current - 1, 1))}
+              onClick={previousStep}
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               Өмнөх

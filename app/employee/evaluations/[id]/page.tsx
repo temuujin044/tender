@@ -8,6 +8,7 @@ import {
   Building2,
   CheckCircle2,
   ClipboardCheck,
+  Download,
   FileText,
   Loader2,
   Save,
@@ -30,16 +31,20 @@ import { DataPagination } from '@/components/data-pagination';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
+  downloadProtectedFile,
   fetchEvaluationCriteria,
+  fetchEvaluationDocuments,
   fetchEvaluationVendors,
   fetchMyEmployeePermission,
   fetchTenderDetail,
   saveEvaluationScores,
   type EvaluationCriterion,
+  type EvaluationDocument,
   type EvaluationVendor,
 } from '@/lib/api';
 import { getStoredUser } from '@/lib/auth';
 import type { Tender } from '@/lib/tender-data';
+import { vendorDocumentLabel } from '@/lib/tender-documents';
 
 function formatMoney(value: number | string | null | undefined) {
   return `${new Intl.NumberFormat('mn-MN', { maximumFractionDigits: 0 }).format(Number(value ?? 0))} ₮`;
@@ -55,12 +60,14 @@ export default function EvaluationDetailPage() {
   const [tender, setTender] = useState<Tender | null>(null);
   const [vendors, setVendors] = useState<EvaluationVendor[]>([]);
   const [criteria, setCriteria] = useState<EvaluationCriterion[]>([]);
+  const [documents, setDocuments] = useState<EvaluationDocument[]>([]);
   const [scores, setScores] = useState<Record<number, string>>({});
   const [selectedVendorId, setSelectedVendorId] = useState<number | null>(null);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [criteriaLoading, setCriteriaLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [downloadingDocumentId, setDownloadingDocumentId] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [vendorPage, setVendorPage] = useState(1);
@@ -117,18 +124,24 @@ export default function EvaluationDetailPage() {
     let cancelled = false;
     if (!selectedVendorId) {
       setCriteria([]);
+      setDocuments([]);
       setScores({});
       return;
     }
 
     const loadCriteria = async () => {
       setCriteriaLoading(true);
+      setDocuments([]);
       setError('');
       setNotice('');
       try {
-        const rows = await fetchEvaluationCriteria(invitationId, selectedVendorId, employeeId);
+        const [rows, documentRows] = await Promise.all([
+          fetchEvaluationCriteria(invitationId, selectedVendorId, employeeId),
+          fetchEvaluationDocuments(invitationId, selectedVendorId),
+        ]);
         if (!cancelled) {
           setCriteria(rows);
+          setDocuments(documentRows);
           setScores(
             Object.fromEntries(
               rows.map((criterion) => [
@@ -152,6 +165,24 @@ export default function EvaluationDetailPage() {
       cancelled = true;
     };
   }, [employeeId, invitationId, selectedVendorId]);
+
+  const downloadDocument = async (document: EvaluationDocument) => {
+    setDownloadingDocumentId(document.joindocid);
+    setError('');
+    try {
+      await downloadProtectedFile(
+        document.sourceid,
+        document.sourcetype,
+        document.filename || document.documentname || 'document'
+      );
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error ? requestError.message : 'Баримт бичгийг татаж чадсангүй.'
+      );
+    } finally {
+      setDownloadingDocumentId(null);
+    }
+  };
 
   const filteredVendors = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -218,7 +249,7 @@ export default function EvaluationDetailPage() {
           vendor.vendorid === selectedVendorId ? { ...vendor, totalpoint: currentScore } : vendor
         )
       );
-      setNotice('Үнэлгээний оноо backend-д амжилттай хадгалагдлаа.');
+      setNotice('Үнэлгээний оноо амжилттай хадгалагдлаа.');
     } catch (requestError) {
       setError(
         requestError instanceof Error ? requestError.message : 'Үнэлгээг хадгалж чадсангүй.'
@@ -379,6 +410,63 @@ export default function EvaluationDetailPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
+                  {selectedVendor && !criteriaLoading && (
+                    <div className="mb-6 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">
+                            Нийлүүлэгчийн баримт бичиг
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-slate-500">
+                            Эдгээр файл санал хүлээн авах хугацаа дуусаж, шалгаруулалт эхэлсний
+                            дараа нээгдэнэ.
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="shrink-0 bg-white">
+                          {documents.length} файл
+                        </Badge>
+                      </div>
+                      {documents.length ? (
+                        <div className="mt-4 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">
+                          {documents.map((document) => (
+                            <div
+                              key={document.joindocid}
+                              className="flex items-center gap-3 px-3 py-3"
+                            >
+                              <FileText className="h-5 w-5 shrink-0 text-orange-500" />
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium text-slate-900">
+                                  {vendorDocumentLabel(document.requiretypeid)}
+                                </p>
+                                <p className="mt-0.5 truncate text-xs text-slate-500">
+                                  {document.filename || document.documentname || 'Баримт бичиг'}
+                                  {document.batchname ? ` • ${document.batchname}` : ''}
+                                </p>
+                              </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={downloadingDocumentId === document.joindocid}
+                                onClick={() => void downloadDocument(document)}
+                              >
+                                {downloadingDocumentId === document.joindocid ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Download className="h-4 w-4" />
+                                )}
+                                Татах
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-4 rounded-md border border-dashed border-slate-300 bg-white p-4 text-center text-sm text-slate-500">
+                          Нийлүүлэгч баримт бичиг хавсаргаагүй байна.
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {criteriaLoading ? (
                     <div className="space-y-3">
                       {Array.from({ length: 4 }, (_, index) => (

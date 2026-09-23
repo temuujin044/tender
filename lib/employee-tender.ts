@@ -13,7 +13,7 @@ export const invitationStatusLabels: Record<number, string> = {
   10: 'Дахин зарласан',
 };
 
-export type EmployeeBatch = { id: string; code: string; name: string };
+export type EmployeeBatch = { id: string; code: string; name: string; budget: number };
 export type EmployeeRequirement = {
   id: string;
   name: string;
@@ -74,6 +74,7 @@ export type EmployeeTender = {
 };
 
 export function getTenderCompletion(tender: EmployeeTender) {
+  const batchBudgetTotal = tender.batches.reduce((sum, batch) => sum + batch.budget, 0);
   const checks = [
     Boolean(
       tender.name &&
@@ -90,11 +91,12 @@ export function getTenderCompletion(tender: EmployeeTender) {
       tender.openDate &&
       tender.evaluationDate
     ),
-    tender.batches.length > 0,
+    tender.batches.length > 0 &&
+      tender.batches.every((batch) => batch.budget > 0) &&
+      batchBudgetTotal === tender.budget,
     tender.requirements.length > 0 &&
       tender.criteria.length > 0 &&
       tender.criteria.reduce((sum, item) => sum + item.weight, 0) === 100,
-    tender.documents.length > 0,
     ['secretary', 'chair', 'internal-control'].every((role) =>
       tender.members.some((member) => member.role === role)
     ),

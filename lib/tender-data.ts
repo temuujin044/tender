@@ -17,7 +17,7 @@ export type TenderRequirement = {
   documentRequired?: boolean;
 };
 
-export type TenderBatch = { id: number; code: string; name: string };
+export type TenderBatch = { id: number; code: string; name: string; budget: number };
 
 export interface Tender {
   id: string;

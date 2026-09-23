@@ -23,6 +23,26 @@ export class ApiError extends Error {
   }
 }
 
+function apiErrorMessage(body: unknown): string | null {
+  if (typeof body === 'string') return body.trim() || null;
+  if (Array.isArray(body)) {
+    const messages = body.map(apiErrorMessage).filter((value): value is string => Boolean(value));
+    return messages.length ? messages.join(' ') : null;
+  }
+  if (!body || typeof body !== 'object') return null;
+
+  const record = body as Record<string, unknown>;
+  for (const key of ['message', 'detail', 'error', 'RetMsg', 'retMsg', 'ret_msg']) {
+    const message = apiErrorMessage(record[key]);
+    if (message) return message;
+  }
+  for (const [field, value] of Object.entries(record)) {
+    const message = apiErrorMessage(value);
+    if (message) return `${field}: ${message}`;
+  }
+  return null;
+}
+
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData;
   const token = path.startsWith('/tenderauth/') ? undefined : getStoredUser()?.token;
@@ -43,13 +63,9 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
     : await response.text();
 
   if (!response.ok) {
-    const record = typeof body === 'object' && body ? (body as Record<string, unknown>) : null;
-    const message =
-      record?.message ?? record?.error ?? record?.RetMsg ?? record?.retMsg ?? record?.ret_msg;
+    const message = contentType.includes('application/json') ? apiErrorMessage(body) : null;
     throw new ApiError(
-      typeof message === 'string'
-        ? message
-        : `Backend хүсэлт амжилтгүй боллоо (${response.status}).`,
+      message ?? `Backend хүсэлт амжилтгүй боллоо (${response.status}).`,
       response.status
     );
   }
@@ -452,7 +468,12 @@ type InvitationDocument = {
   sourcetype?: string | null;
   filepath?: string | null;
 };
-type InvitationBatch = { batchid: number; batchcode?: string | null; batchname?: string | null };
+type InvitationBatch = {
+  batchid: number;
+  batchcode?: string | null;
+  batchname?: string | null;
+  budget?: number | string | null;
+};
 type InvitationMember = {
   evaluationid: number;
   empid?: number | null;
@@ -537,7 +558,12 @@ export async function fetchTenderDetail(invitationId: number): Promise<Tender> {
         item.requirename ?? item.requirevalue ?? item.criterianame,
         'Нэргүй шаардлага'
       );
-      return { id: item.requireid, name, type: requirementType(name), documentRequired: true };
+      return {
+        id: item.requireid,
+        name,
+        type: requirementType(name),
+        documentRequired: item.document_required ?? true,
+      };
     });
   return {
     ...fallback,
@@ -559,6 +585,7 @@ export async function fetchTenderDetail(invitationId: number): Promise<Tender> {
       id: Number(batch.batchid),
       code: clean(batch.batchcode, 'Багцын код бүртгэгдээгүй'),
       name: clean(batch.batchname, 'Багцын нэр бүртгэгдээгүй'),
+      budget: Number(batch.budget ?? 0),
     })),
     documents: documents.map((item) => {
       const name = clean(item.filename ?? item.documentname, 'Баримт бичиг');
@@ -877,10 +904,66 @@ export function getDownloadUrl(sourceId: number, sourceType: string) {
   return `${API_PREFIX}/maktender/downloadFile/?sourceid=${encodeURIComponent(sourceId)}&sourcetype=${encodeURIComponent(sourceType)}`;
 }
 
+export type EvaluationDocument = {
+  joindocid: number;
+  documentname?: string | null;
+  filename?: string | null;
+  sourceid: number;
+  sourcetype: string;
+  filetype?: string | null;
+  created?: string | null;
+  createdby?: string | null;
+  requiretypeid?: number | null;
+  batchcode?: string | null;
+  batchname?: string | null;
+};
+
+export async function fetchEvaluationDocuments(invitationId: number, vendorId: number) {
+  const response = await apiRequest<{ data: EvaluationDocument[] }>(
+    `/maktender/getTenderDocJoinList/?invitationid=${invitationId}&vendorid=${vendorId}`
+  );
+  return response.data ?? [];
+}
+
+export async function downloadProtectedFile(
+  sourceId: number,
+  sourceType: string,
+  filename: string
+) {
+  const token = getStoredUser()?.token;
+  const response = await fetch(getDownloadUrl(sourceId, sourceType), {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    const contentType = response.headers.get('content-type') ?? '';
+    const body = contentType.includes('application/json')
+      ? ((await response.json()) as Record<string, unknown>)
+      : null;
+    throw new ApiError(
+      typeof body?.error === 'string' ? body.error : 'Баримт бичгийг татаж чадсангүй.',
+      response.status
+    );
+  }
+  const blobUrl = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement('a');
+  anchor.href = blobUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(blobUrl);
+}
+
 type TenderTypeOption = { tendertypeid: number; tendertypename: string };
 type PurchaseTypeOption = { purchasetypeid: number; purchasetypename: string };
 type DepartmentOption = { departmentid: number; departmentname: string; depcode?: string };
-type TenderBatchOption = { batchid: number; batchcode?: string | null; batchname?: string | null };
+type TenderBatchOption = {
+  batchid: number;
+  batchcode?: string | null;
+  batchname?: string | null;
+  budget?: number | string | null;
+};
 type TenderInitialRecord = {
   tenderid: number;
   tendercode?: string | null;
@@ -984,6 +1067,7 @@ function catalogTenderToEmployee(tender: Tender): EmployeeTender {
       id: String(batch.id),
       code: batch.code,
       name: batch.name,
+      budget: batch.budget,
     })),
     requirements: [],
     criteria: [],
@@ -1040,6 +1124,7 @@ export async function fetchEmployeeTender(invitationId: number): Promise<Employe
           id: String(batch.batchid),
           code: clean(batch.batchcode, 'Багцын код бүртгэгдээгүй'),
           name: clean(batch.batchname, 'Багцын нэр бүртгэгдээгүй'),
+          budget: Number(batch.budget ?? 0),
         }))
       : mapped.batches,
     requirements: requirements
@@ -1155,7 +1240,10 @@ export async function saveEmployeeTenderToBackend(tender: EmployeeTender) {
         enddate: tender.endDate || null,
         plandate: tender.startDate || null,
         createdby: tender.createdBy,
-        batch: tender.batches.map((batch) => ({ batchname: batch.name })),
+        batch: tender.batches.map((batch) => ({
+          batchname: batch.name,
+          budget: batch.budget > 0 ? batch.budget : null,
+        })),
       },
       details: {
         invitationid: tender.invitationId || 0,
@@ -1306,6 +1394,11 @@ export type TenderWorkflow = {
   editable: boolean;
   actions: string[];
   vendors: Array<{ vendorid: number; name: string; status: number; note: string | null }>;
+  identitiesSealed: boolean;
+  submissionSummary: {
+    totalCompanies: number;
+    batches: Array<{ batchid: number; code: string; name: string; companyCount: number }>;
+  } | null;
   acceptdate: string | null;
   opendate: string | null;
 };

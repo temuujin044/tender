@@ -49,7 +49,7 @@ export function StatsSection() {
     {
       label: 'Оролцсон / Үр дүн',
       value: String(participationCount),
-      description: 'Backend-д бүртгэгдсэн',
+      description: 'Бүртгэгдсэн',
       icon: CheckCircle,
       href: '/tenders/closed',
       color: 'text-emerald-600',
